@@ -26,6 +26,14 @@ curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main
 
 The website repository is cloned into `www/` at deploy time. It stays separate from this proxy deployment repository.
 
+Deploy with an existing local website directory on the server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash
+```
+
+`WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. The deploy script writes `WEB_SOURCE` into `.env` for Docker Compose.
+
 If `NAIVE_PASSWORD` or `VMESS_UUID` are not provided, the script generates them and prints the client values after deployment.
 Those generated values are also stored on the server in `.deploy-client.env`, which is ignored by Git.
 
@@ -39,6 +47,7 @@ Those generated values are also stored on the server in `.deploy-client.env`, wh
   data/     # Caddy certificates and runtime state, ignored by Git
   log/      # Caddy logs, ignored by Git
   www/      # optional separate website checkout, ignored by Git
+  .env      # Docker Compose runtime variables, ignored by Git
 ```
 
 ## Automatic Configuration
@@ -54,6 +63,8 @@ Supported environment variables:
 - `WS_PATH`: optional V2Ray WebSocket path. Defaults to `/test`.
 - `AUTO_CONFIG`: `auto`, `1`, or `0`. Defaults to `auto`.
 - `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
+- `WEB_REPO_URL`: optional separate Git repository for website files.
+- `WEB_LOCAL_DIR`: optional existing local directory mounted as `/var/www`.
 
 `AUTO_CONFIG=auto` writes generated config only when the checked-out files still contain placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` and `config.json` yourself.
 

@@ -12,10 +12,12 @@ BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 WEB_REPO_URL="${WEB_REPO_URL:-}"
 WEB_BRANCH="${WEB_BRANCH:-main}"
 WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
+WEB_LOCAL_DIR="${WEB_LOCAL_DIR:-}"
 SKIP_DOCKER_INSTALL="${SKIP_DOCKER_INSTALL:-0}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
 AUTO_CONFIG="${AUTO_CONFIG:-auto}"
 CLIENT_ENV_FILE="${CLIENT_ENV_FILE:-.deploy-client.env}"
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 PROXY_DOMAIN="${PROXY_DOMAIN:-}"
 SITE_DOMAIN="${SITE_DOMAIN:-}"
@@ -49,6 +51,7 @@ Environment:
   WEB_REPO_URL          Optional separate static website repository.
   WEB_BRANCH            Website repository branch. Default: main.
   WEB_DIR               Website checkout path relative to INSTALL_DIR. Default: www.
+  WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
 EOF
@@ -189,11 +192,19 @@ sync_proxy_repo() {
 sync_web_repo() {
     cd "$INSTALL_DIR"
 
+    if [ -n "$WEB_LOCAL_DIR" ]; then
+        [ -d "$WEB_LOCAL_DIR" ] || die "WEB_LOCAL_DIR does not exist or is not a directory: $WEB_LOCAL_DIR"
+        log "Using local website directory: $WEB_LOCAL_DIR"
+        write_compose_env "$WEB_LOCAL_DIR"
+        return
+    fi
+
     if [ -z "$WEB_REPO_URL" ]; then
         mkdir -p "$WEB_DIR"
         if [ ! -f "$WEB_DIR/index.html" ]; then
             printf '%s\n' '<!doctype html><title>proxy server</title><h1>proxy server</h1>' > "$WEB_DIR/index.html"
         fi
+        write_compose_env "./$WEB_DIR"
         return
     fi
 
@@ -210,6 +221,23 @@ sync_web_repo() {
         log "Cloning website repository into $WEB_DIR"
         git clone --branch "$WEB_BRANCH" "$WEB_REPO_URL" "$WEB_DIR"
     fi
+
+    write_compose_env "./$WEB_DIR"
+}
+
+write_compose_env() {
+    cd "$INSTALL_DIR"
+
+    local web_source="$1"
+    local tmp_file
+    tmp_file="$(mktemp)"
+
+    if [ -f "$COMPOSE_ENV_FILE" ]; then
+        grep -v '^WEB_SOURCE=' "$COMPOSE_ENV_FILE" > "$tmp_file" || true
+    fi
+
+    printf 'WEB_SOURCE=%s\n' "$web_source" >> "$tmp_file"
+    mv "$tmp_file" "$COMPOSE_ENV_FILE"
 }
 
 has_placeholder_config() {

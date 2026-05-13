@@ -17,7 +17,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/naiveproxy/Caddyfile:ro
       - ./data:/root/.local/share/caddy
-      - ./www:/var/www:ro
+      - ${WEB_SOURCE:-./www}:/var/www:ro
       - ./log:/var/log/caddy
     depends_on:
       - v2ray

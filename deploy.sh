@@ -14,6 +14,15 @@ WEB_BRANCH="${WEB_BRANCH:-main}"
 WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
 SKIP_DOCKER_INSTALL="${SKIP_DOCKER_INSTALL:-0}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
+AUTO_CONFIG="${AUTO_CONFIG:-auto}"
+CLIENT_ENV_FILE="${CLIENT_ENV_FILE:-.deploy-client.env}"
+ACME_EMAIL="${ACME_EMAIL:-}"
+PROXY_DOMAIN="${PROXY_DOMAIN:-}"
+SITE_DOMAIN="${SITE_DOMAIN:-}"
+NAIVE_USER="${NAIVE_USER:-proxy}"
+NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
+VMESS_UUID="${VMESS_UUID:-}"
+WS_PATH="${WS_PATH:-/test}"
 
 usage() {
     cat <<'EOF'
@@ -21,13 +30,22 @@ Usage:
   sudo bash deploy.sh [--repo <git-url>] [--branch <branch>] [--dir <install-dir>]
 
 Examples:
-  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git bash deploy.sh
-  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git WEB_REPO_URL=https://github.com/yourname/site.git bash deploy.sh
+  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
+  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_REPO_URL=https://github.com/yourname/site.git bash deploy.sh
 
 Environment:
   REPO_URL              Proxy deployment repository to clone or update.
   BRANCH                Proxy deployment branch. Default: main.
   INSTALL_DIR           Target directory. Default: /opt/proxy-server-deploy.
+  PROXY_DOMAIN          Required for automatic config. NaiveProxy HTTPS domain.
+  SITE_DOMAIN           Optional website/V2Ray domain. Defaults to PROXY_DOMAIN.
+  ACME_EMAIL            Required for automatic config. Caddy ACME email.
+  NAIVE_USER            NaiveProxy username. Default: proxy.
+  NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
+  VMESS_UUID            V2Ray VMess UUID. Auto-generated when empty.
+  WS_PATH               V2Ray WebSocket path. Default: /test.
+  AUTO_CONFIG           auto, 1, or 0. Default: auto.
+  CLIENT_ENV_FILE       Generated client values file. Default: .deploy-client.env.
   WEB_REPO_URL          Optional separate static website repository.
   WEB_BRANCH            Website repository branch. Default: main.
   WEB_DIR               Website checkout path relative to INSTALL_DIR. Default: www.
@@ -122,6 +140,27 @@ install_docker() {
     docker compose version >/dev/null 2>&1 || die "Docker Compose plugin is unavailable after Docker installation"
 }
 
+random_secret() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 24 | tr -d '\n' | tr '/+' '_-'
+    else
+        date +%s%N | sha256sum | awk '{print $1}'
+    fi
+}
+
+new_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif [ -r /proc/sys/kernel/random/uuid ]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        python3 - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+    fi
+}
+
 running_from_project_dir() {
     [ -f "./docker-compose.yml" ] && [ -f "./Caddyfile" ] && [ -f "./config.json" ] && [ -f "./build.sh" ]
 }
@@ -173,6 +212,153 @@ sync_web_repo() {
     fi
 }
 
+has_placeholder_config() {
+    grep -Eq 'proxy\.example\.com|site\.example\.com|00000000-0000-0000-0000-000000000000|change-this-password' Caddyfile config.json
+}
+
+should_auto_configure() {
+    case "$AUTO_CONFIG" in
+        1|true|yes)
+            return 0
+            ;;
+        0|false|no)
+            return 1
+            ;;
+        auto)
+            has_placeholder_config
+            return
+            ;;
+        *)
+            die "AUTO_CONFIG must be auto, 1, or 0"
+            ;;
+    esac
+}
+
+write_generated_config() {
+    cd "$INSTALL_DIR"
+
+    if ! should_auto_configure; then
+        return
+    fi
+
+    [ -n "$PROXY_DOMAIN" ] || die "PROXY_DOMAIN is required for automatic config"
+    [ -n "$ACME_EMAIL" ] || die "ACME_EMAIL is required for automatic config"
+
+    SITE_DOMAIN="${SITE_DOMAIN:-$PROXY_DOMAIN}"
+    NAIVE_PASSWORD="${NAIVE_PASSWORD:-$(random_secret)}"
+    VMESS_UUID="${VMESS_UUID:-$(new_uuid)}"
+
+    log "Writing generated Caddyfile and config.json"
+
+    if [ "$SITE_DOMAIN" = "$PROXY_DOMAIN" ]; then
+        cat > Caddyfile <<EOF
+{
+  order forward_proxy before file_server
+  email ${ACME_EMAIL}
+}
+
+${PROXY_DOMAIN} {
+  forward_proxy {
+    basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
+    hide_ip
+    hide_via
+    probe_resistance
+  }
+
+  @v2ray_websocket {
+    path ${WS_PATH}
+    header Connection Upgrade
+    header Upgrade websocket
+  }
+  reverse_proxy @v2ray_websocket 127.0.0.1:10000
+
+  file_server {
+    root /var/www
+  }
+}
+EOF
+    else
+        cat > Caddyfile <<EOF
+{
+  order forward_proxy before file_server
+  email ${ACME_EMAIL}
+}
+
+${PROXY_DOMAIN} {
+  forward_proxy {
+    basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
+    hide_ip
+    hide_via
+    probe_resistance
+  }
+
+  file_server {
+    root /var/www
+    browse
+  }
+}
+
+${SITE_DOMAIN} {
+  @v2ray_websocket {
+    path ${WS_PATH}
+    header Connection Upgrade
+    header Upgrade websocket
+  }
+  reverse_proxy @v2ray_websocket 127.0.0.1:10000
+
+  file_server {
+    root /var/www
+  }
+}
+EOF
+    fi
+
+    cat > config.json <<EOF
+{
+  "inbounds": [
+    {
+      "port": 10000,
+      "listen": "127.0.0.1",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${VMESS_UUID}",
+            "alterId": 0,
+            "note": "generated-by-deploy"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "${WS_PATH}"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+EOF
+
+    chmod 600 Caddyfile config.json
+
+    cat > "$CLIENT_ENV_FILE" <<EOF
+PROXY_DOMAIN=${PROXY_DOMAIN}
+SITE_DOMAIN=${SITE_DOMAIN}
+NAIVE_USER=${NAIVE_USER}
+NAIVE_PASSWORD=${NAIVE_PASSWORD}
+VMESS_UUID=${VMESS_UUID}
+WS_PATH=${WS_PATH}
+EOF
+    chmod 600 "$CLIENT_ENV_FILE"
+}
+
 validate_project() {
     cd "$INSTALL_DIR"
 
@@ -200,9 +386,22 @@ build_image() {
 start_services() {
     cd "$INSTALL_DIR"
 
+    if [ -f "$CLIENT_ENV_FILE" ]; then
+        # shellcheck disable=SC1090
+        . "./$CLIENT_ENV_FILE"
+    fi
+
     log "Starting services"
     docker compose up -d
     docker compose ps
+
+    if [ -n "$PROXY_DOMAIN" ]; then
+        printf '\nProxy client values:\n'
+        printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN"
+        printf '  VMess UUID: %s\n' "$VMESS_UUID"
+        printf '  VMess host: %s\n' "$SITE_DOMAIN"
+        printf '  VMess WebSocket path: %s\n\n' "$WS_PATH"
+    fi
 
     log "Done. Check logs with: cd $INSTALL_DIR && docker compose logs -f"
 }
@@ -214,6 +413,7 @@ main() {
     install_docker
     sync_proxy_repo
     sync_web_repo
+    write_generated_config
     validate_project
     build_image
     start_services

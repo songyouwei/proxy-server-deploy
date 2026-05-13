@@ -10,24 +10,24 @@ This repository intentionally does not include certificates, runtime data, logs,
 
 ## Quick Start
 
-Fork or copy this repository, then edit:
-
-- `Caddyfile`: domains, email, NaiveProxy users.
-- `config.json`: VMess UUIDs and WebSocket path.
+The deploy script is non-interactive. It can generate `Caddyfile` and `config.json` from environment variables on the target server.
 
 Deploy on a new server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash
 ```
 
 Deploy with website files from a separate repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git WEB_REPO_URL=https://github.com/yourname/your-static-site.git bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_REPO_URL=https://github.com/yourname/your-static-site.git bash
 ```
 
 The website repository is cloned into `www/` at deploy time. It stays separate from this proxy deployment repository.
+
+If `NAIVE_PASSWORD` or `VMESS_UUID` are not provided, the script generates them and prints the client values after deployment.
+Those generated values are also stored on the server in `.deploy-client.env`, which is ignored by Git.
 
 ## Runtime Layout
 
@@ -41,14 +41,21 @@ The website repository is cloned into `www/` at deploy time. It stays separate f
   www/      # optional separate website checkout, ignored by Git
 ```
 
-## Configuration Notes
+## Automatic Configuration
 
-The default `Caddyfile` uses placeholder domains. Replace them before deployment:
+Supported environment variables:
 
-- `proxy.example.com`: NaiveProxy endpoint.
-- `site.example.com`: static site and V2Ray WebSocket host.
+- `PROXY_DOMAIN`: required for generated config. NaiveProxy HTTPS domain.
+- `ACME_EMAIL`: required for generated config. Caddy ACME email.
+- `SITE_DOMAIN`: optional website/V2Ray domain. Defaults to `PROXY_DOMAIN`.
+- `NAIVE_USER`: optional NaiveProxy username. Defaults to `proxy`.
+- `NAIVE_PASSWORD`: optional NaiveProxy password. Generated when empty.
+- `VMESS_UUID`: optional V2Ray VMess UUID. Generated when empty.
+- `WS_PATH`: optional V2Ray WebSocket path. Defaults to `/test`.
+- `AUTO_CONFIG`: `auto`, `1`, or `0`. Defaults to `auto`.
+- `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
 
-The default V2Ray WebSocket path is `/test`. If you change it in `config.json`, also change it in `Caddyfile`.
+`AUTO_CONFIG=auto` writes generated config only when the checked-out files still contain placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` and `config.json` yourself.
 
 Ports `80` and `443` must be open, and all configured domains must resolve to the server before Caddy can issue TLS certificates.
 

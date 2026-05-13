@@ -1,0 +1,31 @@
+{
+  order forward_proxy before file_server
+  email admin@example.com
+}
+
+proxy.example.com {
+  forward_proxy {
+    basic_auth proxy-user change-this-password
+    hide_ip
+    hide_via
+    probe_resistance
+  }
+
+  file_server {
+    root /var/www
+    browse
+  }
+}
+
+site.example.com {
+  @v2ray_websocket {
+    path /test
+    header Connection Upgrade
+    header Upgrade websocket
+  }
+  reverse_proxy @v2ray_websocket 127.0.0.1:10000
+
+  file_server {
+    root /var/www
+  }
+}

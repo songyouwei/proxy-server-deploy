@@ -9,8 +9,6 @@ DEFAULT_WEB_DIR="www"
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
-WEB_REPO_URL="${WEB_REPO_URL:-}"
-WEB_BRANCH="${WEB_BRANCH:-main}"
 WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
 WEB_LOCAL_DIR="${WEB_LOCAL_DIR:-}"
 SKIP_DOCKER_INSTALL="${SKIP_DOCKER_INSTALL:-0}"
@@ -33,7 +31,7 @@ Usage:
 
 Examples:
   sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
-  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_REPO_URL=https://github.com/yourname/site.git bash deploy.sh
+  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash deploy.sh
 
 Environment:
   REPO_URL              Proxy deployment repository to clone or update.
@@ -48,9 +46,7 @@ Environment:
   WS_PATH               V2Ray WebSocket path. Default: /test.
   AUTO_CONFIG           auto, 1, or 0. Default: auto.
   CLIENT_ENV_FILE       Generated client values file. Default: .deploy-client.env.
-  WEB_REPO_URL          Optional separate static website repository.
-  WEB_BRANCH            Website repository branch. Default: main.
-  WEB_DIR               Website checkout path relative to INSTALL_DIR. Default: www.
+  WEB_DIR               Default website directory relative to INSTALL_DIR. Default: www.
   WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
@@ -85,14 +81,6 @@ parse_args() {
                 ;;
             --dir)
                 INSTALL_DIR="${2:-}"
-                shift 2
-                ;;
-            --web-repo)
-                WEB_REPO_URL="${2:-}"
-                shift 2
-                ;;
-            --web-branch)
-                WEB_BRANCH="${2:-}"
                 shift 2
                 ;;
             -h|--help)
@@ -199,27 +187,9 @@ sync_web_repo() {
         return
     fi
 
-    if [ -z "$WEB_REPO_URL" ]; then
-        mkdir -p "$WEB_DIR"
-        if [ ! -f "$WEB_DIR/index.html" ]; then
-            printf '%s\n' '<!doctype html><title>proxy server</title><h1>proxy server</h1>' > "$WEB_DIR/index.html"
-        fi
-        write_compose_env "./$WEB_DIR"
-        return
-    fi
-
-    if [ -d "$WEB_DIR/.git" ]; then
-        log "Updating website repository: $WEB_DIR"
-        git -C "$WEB_DIR" fetch --all --prune
-        git -C "$WEB_DIR" checkout "$WEB_BRANCH"
-        git -C "$WEB_DIR" pull --ff-only origin "$WEB_BRANCH"
-    else
-        if [ -e "$WEB_DIR" ] && [ "$(find "$WEB_DIR" -mindepth 1 -maxdepth 1 | head -n 1)" ]; then
-            die "$WEB_DIR exists and is not empty; move it away or set WEB_DIR to another path"
-        fi
-        rm -rf "$WEB_DIR"
-        log "Cloning website repository into $WEB_DIR"
-        git clone --branch "$WEB_BRANCH" "$WEB_REPO_URL" "$WEB_DIR"
+    mkdir -p "$WEB_DIR"
+    if [ ! -f "$WEB_DIR/index.html" ]; then
+        printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>hello</title></head><body>hello</body></html>' > "$WEB_DIR/index.html"
     fi
 
     write_compose_env "./$WEB_DIR"

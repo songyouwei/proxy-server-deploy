@@ -4,7 +4,7 @@ Generic Docker Compose deployment for a proxy server stack:
 
 - Caddy with `forwardproxy-naive` for NaiveProxy over HTTPS.
 - V2Ray VMess over WebSocket behind Caddy.
-- Optional static web content from a separate Git repository.
+- Optional static web content from an existing local directory or a separate Git repository.
 
 This repository intentionally does not include certificates, runtime data, logs, or website files.
 
@@ -12,27 +12,38 @@ This repository intentionally does not include certificates, runtime data, logs,
 
 The deploy script is non-interactive. It can generate `Caddyfile` and `config.json` from environment variables on the target server.
 
-Deploy on a new server:
+Deploy only the proxy stack, with a generated placeholder website:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash
 ```
 
-Deploy with website files from a separate repository:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_REPO_URL=https://github.com/yourname/your-static-site.git bash
-```
-
-The website repository is cloned into `www/` at deploy time. It stays separate from this proxy deployment repository.
-
-Deploy with an existing local website directory on the server:
+Recommended for real websites: deploy with an existing local website directory on the server:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash
 ```
 
-`WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. The deploy script writes `WEB_SOURCE` into `.env` for Docker Compose.
+`WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. This is the preferred path for larger website exports, rsync-managed content, backup restores, or content maintained outside GitHub.
+
+Example website layout:
+
+```text
+/srv/www/
+  index.html
+  assets/
+  www.example.com/
+```
+
+The deploy script writes `WEB_SOURCE=/srv/www` into `.env` for Docker Compose, so later `docker compose up -d` keeps using the same local directory.
+
+Optional for small static sites: deploy with website files from a separate repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_REPO_URL=https://github.com/yourname/your-static-site.git bash
+```
+
+When `WEB_REPO_URL` is set, the website repository is cloned into `www/` at deploy time. It stays separate from this proxy deployment repository.
 
 If `NAIVE_PASSWORD` or `VMESS_UUID` are not provided, the script generates them and prints the client values after deployment.
 Those generated values are also stored on the server in `.deploy-client.env`, which is ignored by Git.
@@ -46,7 +57,7 @@ Those generated values are also stored on the server in `.deploy-client.env`, wh
   docker-compose.yml
   data/     # Caddy certificates and runtime state, ignored by Git
   log/      # Caddy logs, ignored by Git
-  www/      # optional separate website checkout, ignored by Git
+  www/      # optional website checkout when using WEB_REPO_URL, ignored by Git
   .env      # Docker Compose runtime variables, ignored by Git
 ```
 
@@ -63,8 +74,8 @@ Supported environment variables:
 - `WS_PATH`: optional V2Ray WebSocket path. Defaults to `/test`.
 - `AUTO_CONFIG`: `auto`, `1`, or `0`. Defaults to `auto`.
 - `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
-- `WEB_REPO_URL`: optional separate Git repository for website files.
-- `WEB_LOCAL_DIR`: optional existing local directory mounted as `/var/www`.
+- `WEB_LOCAL_DIR`: optional existing local directory mounted read-only as `/var/www`. Recommended for larger sites.
+- `WEB_REPO_URL`: optional separate Git repository for website files. Useful for small static sites.
 
 `AUTO_CONFIG=auto` writes generated config only when the checked-out files still contain placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` and `config.json` yourself.
 
@@ -91,6 +102,13 @@ Restart after config changes:
 ```bash
 cd /opt/proxy-server-deploy
 sudo docker compose up -d
+```
+
+Update the proxy repo while keeping a local website directory:
+
+```bash
+cd /opt/proxy-server-deploy
+sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git WEB_LOCAL_DIR=/srv/www ./deploy.sh
 ```
 
 Update the proxy repo and website repo:

@@ -278,7 +278,7 @@ write_generated_config() {
   email ${ACME_EMAIL}
 }
 
-${PROXY_DOMAIN} {
+:443, ${PROXY_DOMAIN} {
   forward_proxy {
     basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
     hide_ip
@@ -305,7 +305,7 @@ EOF
   email ${ACME_EMAIL}
 }
 
-${PROXY_DOMAIN} {
+:443, ${PROXY_DOMAIN} {
   forward_proxy {
     basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
     hide_ip

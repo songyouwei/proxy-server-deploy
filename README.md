@@ -12,6 +12,7 @@ This repository intentionally does not include certificates, runtime data, logs,
 
 The deploy script is non-interactive. It can generate `Caddyfile` and `config.json` from environment variables on the target server.
 If `ufw` is active, it also opens inbound TCP `80` and `443` automatically.
+The generated NaiveProxy Caddy site address includes `:443, PROXY_DOMAIN` so the forward proxy is available on the HTTPS listener.
 
 Deploy only the proxy stack, with a generated placeholder website:
 

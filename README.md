@@ -10,20 +10,22 @@ This repository intentionally does not include certificates, runtime data, logs,
 
 ## Quick Start
 
-The deploy script is non-interactive. It can generate `Caddyfile` and `config.json` from environment variables on the target server.
+The deploy script prompts for the minimum required values and uses defaults for the rest. It can also run non-interactively when values are provided as environment variables.
 If `ufw` is active, it also opens inbound TCP `80` and `443` automatically.
 The generated NaiveProxy Caddy site address includes `:443, PROXY_DOMAIN` so the forward proxy is available on the HTTPS listener.
 
 Deploy only the proxy stack, with a generated placeholder website:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo bash
 ```
+
+The script will ask for the proxy domain and ACME email.
 
 Recommended for real websites: deploy with an existing local website directory on the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_LOCAL_DIR=/srv/www bash
 ```
 
 `WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. This is the preferred path for larger website exports, rsync-managed content, backup restores, or content maintained outside GitHub.
@@ -60,8 +62,8 @@ Those generated values are also stored on the server in `.deploy-client.env`, wh
 Supported environment variables:
 
 - `REPO_URL`: proxy deployment repository to clone or update. Defaults to this repository.
-- `PROXY_DOMAIN`: required for generated config. NaiveProxy HTTPS domain.
-- `ACME_EMAIL`: required for generated config. Caddy ACME email.
+- `PROXY_DOMAIN`: NaiveProxy HTTPS domain. Prompted when missing.
+- `ACME_EMAIL`: Caddy ACME email. Prompted when missing.
 - `SITE_DOMAIN`: optional website/V2Ray domain. Defaults to `PROXY_DOMAIN`.
 - `NAIVE_USER`: optional NaiveProxy username. Defaults to `proxy`.
 - `NAIVE_PASSWORD`: optional NaiveProxy password. Generated when empty.

@@ -31,6 +31,7 @@ Usage:
   sudo bash deploy.sh [--repo <git-url>] [--branch <branch>] [--dir <install-dir>]
 
 Examples:
+  sudo bash deploy.sh
   sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
   sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash deploy.sh
 
@@ -38,9 +39,9 @@ Environment:
   REPO_URL              Proxy deployment repository to clone or update. Default: https://github.com/songyouwei/proxy-server-deploy.git.
   BRANCH                Proxy deployment branch. Default: main.
   INSTALL_DIR           Target directory. Default: /opt/proxy-server-deploy.
-  PROXY_DOMAIN          Required for automatic config. NaiveProxy HTTPS domain.
+  PROXY_DOMAIN          NaiveProxy HTTPS domain. Prompted when missing.
   SITE_DOMAIN           Optional website/V2Ray domain. Defaults to PROXY_DOMAIN.
-  ACME_EMAIL            Required for automatic config. Caddy ACME email.
+  ACME_EMAIL            Caddy ACME email. Prompted when missing.
   NAIVE_USER            NaiveProxy username. Default: proxy.
   NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
   VMESS_UUID            V2Ray VMess UUID. Auto-generated when empty.
@@ -93,6 +94,26 @@ parse_args() {
                 die "unknown argument: $1"
                 ;;
         esac
+    done
+}
+
+prompt_into() {
+    local name="$1"
+    local prompt="$2"
+    local value
+
+    if ! { : < /dev/tty; } 2>/dev/null; then
+        die "$name is required. Set it as an environment variable because no interactive terminal is available."
+    fi
+
+    while true; do
+        printf '%s: ' "$prompt" > /dev/tty
+        IFS= read -r value < /dev/tty || die "failed to read $name"
+        if [ -n "$value" ]; then
+            printf -v "$name" '%s' "$value"
+            return
+        fi
+        printf '%s cannot be empty.\n' "$name" > /dev/tty
     done
 }
 
@@ -252,6 +273,22 @@ should_auto_configure() {
             die "AUTO_CONFIG must be auto, 1, or 0"
             ;;
     esac
+}
+
+prompt_config_inputs() {
+    cd "$INSTALL_DIR"
+
+    if ! should_auto_configure; then
+        return
+    fi
+
+    if [ -z "$PROXY_DOMAIN" ]; then
+        prompt_into PROXY_DOMAIN 'Proxy domain, for example proxy.example.com'
+    fi
+
+    if [ -z "$ACME_EMAIL" ]; then
+        prompt_into ACME_EMAIL 'ACME email for TLS certificates'
+    fi
 }
 
 write_generated_config() {
@@ -430,9 +467,10 @@ main() {
     parse_args "$@"
     as_root
     install_packages
+    sync_proxy_repo
+    prompt_config_inputs
     install_docker
     configure_firewall
-    sync_proxy_repo
     sync_web_repo
     write_generated_config
     validate_project

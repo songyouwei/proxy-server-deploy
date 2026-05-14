@@ -50,6 +50,7 @@ Environment:
   WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
+  SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
 EOF
 }
 
@@ -129,6 +130,28 @@ install_docker() {
     fi
 
     docker compose version >/dev/null 2>&1 || die "Docker Compose plugin is unavailable after Docker installation"
+}
+
+configure_firewall() {
+    if [ "${SKIP_FIREWALL_CONFIG:-0}" = "1" ]; then
+        log "Skipping firewall configuration"
+        return
+    fi
+
+    if ! command -v ufw >/dev/null 2>&1; then
+        log "UFW not installed; skipping firewall configuration"
+        return
+    fi
+
+    if ! ufw status | grep -qi '^Status: active'; then
+        log "UFW is not active; skipping firewall configuration"
+        return
+    fi
+
+    log "UFW is active; allowing inbound TCP 80 and 443"
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw reload
 }
 
 random_secret() {
@@ -409,6 +432,7 @@ main() {
     as_root
     install_packages
     install_docker
+    configure_firewall
     sync_proxy_repo
     sync_web_repo
     write_generated_config

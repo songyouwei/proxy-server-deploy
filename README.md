@@ -11,6 +11,7 @@ This repository intentionally does not include certificates, runtime data, logs,
 ## Quick Start
 
 The deploy script is non-interactive. It can generate `Caddyfile` and `config.json` from environment variables on the target server.
+If `ufw` is active, it also opens inbound TCP `80` and `443` automatically.
 
 Deploy only the proxy stack, with a generated placeholder website:
 
@@ -68,12 +69,13 @@ Supported environment variables:
 - `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
 - `WEB_LOCAL_DIR`: optional existing local directory mounted read-only as `/var/www`. Recommended for larger sites.
 - `WEB_DIR`: default website directory relative to `INSTALL_DIR`. Defaults to `www`.
+- `SKIP_FIREWALL_CONFIG`: set to `1` to skip automatic UFW configuration.
 
 If `WEB_LOCAL_DIR` is not set, the script creates `www/index.html` with a basic `hello` page and mounts that as `/var/www`.
 
 `AUTO_CONFIG=auto` writes generated config only when the checked-out files still contain placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` and `config.json` yourself.
 
-Ports `80` and `443` must be open, and all configured domains must resolve to the server before Caddy can issue TLS certificates.
+Ports `80` and `443` must be open, and all configured domains must resolve to the server before Caddy can issue TLS certificates. If `ufw` is installed and active, the deploy script automatically runs `ufw allow 80/tcp` and `ufw allow 443/tcp`.
 
 ## Commands
 

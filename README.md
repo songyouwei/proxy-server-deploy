@@ -3,7 +3,6 @@
 Generic Docker Compose deployment for a proxy server stack:
 
 - Caddy with `forwardproxy-naive` for NaiveProxy over HTTPS.
-- V2Ray VMess over WebSocket behind Caddy.
 - Optional static web content from an existing local directory.
 
 This repository intentionally does not include certificates, runtime data, logs, or website files.
@@ -41,7 +40,7 @@ Example website layout:
 
 The deploy script writes `WEB_SOURCE=/srv/www` into `.env` for Docker Compose, so later `docker compose up -d` keeps using the same local directory.
 
-If `NAIVE_PASSWORD` or `VMESS_UUID` are not provided, the script generates them and prints the client values after deployment.
+If `NAIVE_PASSWORD` is not provided, the script generates it and prints the client value after deployment.
 Those generated values are also stored on the server in `.deploy-client.env`, which is ignored by Git.
 
 ## Runtime Layout
@@ -49,7 +48,6 @@ Those generated values are also stored on the server in `.deploy-client.env`, wh
 ```text
 /opt/proxy-server-deploy/
   Caddyfile
-  config.json
   docker-compose.yml
   data/     # Caddy certificates and runtime state, ignored by Git
   log/      # Caddy logs, ignored by Git
@@ -64,11 +62,8 @@ Supported environment variables:
 - `REPO_URL`: proxy deployment repository to clone or update. Defaults to this repository.
 - `PROXY_DOMAIN`: NaiveProxy HTTPS domain. Prompted when missing.
 - `ACME_EMAIL`: Caddy ACME email. Prompted when missing.
-- `SITE_DOMAIN`: optional website/V2Ray domain. Defaults to `PROXY_DOMAIN`.
 - `NAIVE_USER`: optional NaiveProxy username. Defaults to `proxy`.
 - `NAIVE_PASSWORD`: optional NaiveProxy password. Generated when empty.
-- `VMESS_UUID`: optional V2Ray VMess UUID. Generated when empty.
-- `WS_PATH`: optional V2Ray WebSocket path. Defaults to `/test`.
 - `AUTO_CONFIG`: `auto`, `1`, or `0`. Defaults to `auto`.
 - `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
 - `WEB_LOCAL_DIR`: optional existing local directory mounted read-only as `/var/www`. Recommended for larger sites.
@@ -77,7 +72,7 @@ Supported environment variables:
 
 If `WEB_LOCAL_DIR` is not set, the script creates `www/index.html` with a basic `hello` page and mounts that as `/var/www`.
 
-`AUTO_CONFIG=auto` writes generated config only when the checked-out files still contain placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` and `config.json` yourself.
+`AUTO_CONFIG=auto` writes generated config only when the checked-out `Caddyfile` still contains placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` yourself.
 
 Ports `80` and `443` must be open, and all configured domains must resolve to the server before Caddy can issue TLS certificates. If `ufw` is installed and active, the deploy script automatically runs `ufw allow 80/tcp` and `ufw allow 443/tcp`.
 

@@ -16,16 +16,3 @@
     browse
   }
 }
-
-site.example.com {
-  @v2ray_websocket {
-    path /test
-    header Connection Upgrade
-    header Upgrade websocket
-  }
-  reverse_proxy @v2ray_websocket 127.0.0.1:10000
-
-  file_server {
-    root /var/www
-  }
-}

@@ -19,11 +19,8 @@ CLIENT_ENV_FILE="${CLIENT_ENV_FILE:-.deploy-client.env}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 PROXY_DOMAIN="${PROXY_DOMAIN:-}"
-SITE_DOMAIN="${SITE_DOMAIN:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
-VMESS_UUID="${VMESS_UUID:-}"
-WS_PATH="${WS_PATH:-/test}"
 
 usage() {
     cat <<'EOF'
@@ -40,12 +37,9 @@ Environment:
   BRANCH                Proxy deployment branch. Default: main.
   INSTALL_DIR           Target directory. Default: /opt/proxy-server-deploy.
   PROXY_DOMAIN          NaiveProxy HTTPS domain. Prompted when missing.
-  SITE_DOMAIN           Optional website/V2Ray domain. Defaults to PROXY_DOMAIN.
   ACME_EMAIL            Caddy ACME email. Prompted when missing.
   NAIVE_USER            NaiveProxy username. Default: proxy.
   NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
-  VMESS_UUID            V2Ray VMess UUID. Auto-generated when empty.
-  WS_PATH               V2Ray WebSocket path. Default: /test.
   AUTO_CONFIG           auto, 1, or 0. Default: auto.
   CLIENT_ENV_FILE       Generated client values file. Default: .deploy-client.env.
   WEB_DIR               Default website directory relative to INSTALL_DIR. Default: www.
@@ -184,21 +178,8 @@ random_secret() {
     fi
 }
 
-new_uuid() {
-    if command -v uuidgen >/dev/null 2>&1; then
-        uuidgen | tr '[:upper:]' '[:lower:]'
-    elif [ -r /proc/sys/kernel/random/uuid ]; then
-        cat /proc/sys/kernel/random/uuid
-    else
-        python3 - <<'PY'
-import uuid
-print(uuid.uuid4())
-PY
-    fi
-}
-
 running_from_project_dir() {
-    [ -f "./docker-compose.yml" ] && [ -f "./Caddyfile" ] && [ -f "./config.json" ] && [ -f "./build.sh" ]
+    [ -f "./docker-compose.yml" ] && [ -f "./Caddyfile" ] && [ -f "./build.sh" ]
 }
 
 sync_proxy_repo() {
@@ -254,7 +235,7 @@ write_compose_env() {
 }
 
 has_placeholder_config() {
-    grep -Eq 'proxy\.example\.com|site\.example\.com|00000000-0000-0000-0000-000000000000|change-this-password' Caddyfile config.json
+    grep -Eq 'proxy\.example\.com|change-this-password' Caddyfile
 }
 
 should_auto_configure() {
@@ -301,41 +282,11 @@ write_generated_config() {
     [ -n "$PROXY_DOMAIN" ] || die "PROXY_DOMAIN is required for automatic config"
     [ -n "$ACME_EMAIL" ] || die "ACME_EMAIL is required for automatic config"
 
-    SITE_DOMAIN="${SITE_DOMAIN:-$PROXY_DOMAIN}"
     NAIVE_PASSWORD="${NAIVE_PASSWORD:-$(random_secret)}"
-    VMESS_UUID="${VMESS_UUID:-$(new_uuid)}"
 
-    log "Writing generated Caddyfile and config.json"
+    log "Writing generated Caddyfile"
 
-    if [ "$SITE_DOMAIN" = "$PROXY_DOMAIN" ]; then
-        cat > Caddyfile <<EOF
-{
-  order forward_proxy before file_server
-  email ${ACME_EMAIL}
-}
-
-:443, ${PROXY_DOMAIN} {
-  forward_proxy {
-    basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
-    hide_ip
-    hide_via
-    probe_resistance
-  }
-
-  @v2ray_websocket {
-    path ${WS_PATH}
-    header Connection Upgrade
-    header Upgrade websocket
-  }
-  reverse_proxy @v2ray_websocket 127.0.0.1:10000
-
-  file_server {
-    root /var/www
-  }
-}
-EOF
-    else
-        cat > Caddyfile <<EOF
+    cat > Caddyfile <<EOF
 {
   order forward_proxy before file_server
   email ${ACME_EMAIL}
@@ -354,64 +305,14 @@ EOF
     browse
   }
 }
-
-${SITE_DOMAIN} {
-  @v2ray_websocket {
-    path ${WS_PATH}
-    header Connection Upgrade
-    header Upgrade websocket
-  }
-  reverse_proxy @v2ray_websocket 127.0.0.1:10000
-
-  file_server {
-    root /var/www
-  }
-}
-EOF
-    fi
-
-    cat > config.json <<EOF
-{
-  "inbounds": [
-    {
-      "port": 10000,
-      "listen": "127.0.0.1",
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "${VMESS_UUID}",
-            "alterId": 0,
-            "note": "generated-by-deploy"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "wsSettings": {
-          "path": "${WS_PATH}"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
 EOF
 
-    chmod 600 Caddyfile config.json
+    chmod 600 Caddyfile
 
     cat > "$CLIENT_ENV_FILE" <<EOF
 PROXY_DOMAIN=${PROXY_DOMAIN}
-SITE_DOMAIN=${SITE_DOMAIN}
 NAIVE_USER=${NAIVE_USER}
 NAIVE_PASSWORD=${NAIVE_PASSWORD}
-VMESS_UUID=${VMESS_UUID}
-WS_PATH=${WS_PATH}
 EOF
     chmod 600 "$CLIENT_ENV_FILE"
 }
@@ -421,7 +322,6 @@ validate_project() {
 
     [ -f docker-compose.yml ] || die "missing docker-compose.yml"
     [ -f Caddyfile ] || die "missing Caddyfile"
-    [ -f config.json ] || die "missing config.json"
     [ -f build.sh ] || die "missing build.sh"
 
     mkdir -p data log
@@ -449,15 +349,13 @@ start_services() {
     fi
 
     log "Starting services"
-    docker compose up -d
+    docker compose up -d --remove-orphans
     docker compose ps
 
     if [ -n "$PROXY_DOMAIN" ]; then
         printf '\nProxy client values:\n'
         printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN"
-        printf '  VMess UUID: %s\n' "$VMESS_UUID"
-        printf '  VMess host: %s\n' "$SITE_DOMAIN"
-        printf '  VMess WebSocket path: %s\n\n' "$WS_PATH"
+        printf '\n'
     fi
 
     log "Done. Check logs with: cd $INSTALL_DIR && docker compose logs -f"

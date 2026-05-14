@@ -5,9 +5,10 @@ set -euo pipefail
 DEFAULT_INSTALL_DIR="/opt/proxy-server-deploy"
 DEFAULT_BRANCH="main"
 DEFAULT_WEB_DIR="www"
+DEFAULT_REPO_URL="https://github.com/songyouwei/proxy-server-deploy.git"
 
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-REPO_URL="${REPO_URL:-}"
+REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
 WEB_LOCAL_DIR="${WEB_LOCAL_DIR:-}"
@@ -30,11 +31,11 @@ Usage:
   sudo bash deploy.sh [--repo <git-url>] [--branch <branch>] [--dir <install-dir>]
 
 Examples:
-  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
-  sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash deploy.sh
+  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
+  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash deploy.sh
 
 Environment:
-  REPO_URL              Proxy deployment repository to clone or update.
+  REPO_URL              Proxy deployment repository to clone or update. Default: https://github.com/songyouwei/proxy-server-deploy.git.
   BRANCH                Proxy deployment branch. Default: main.
   INSTALL_DIR           Target directory. Default: /opt/proxy-server-deploy.
   PROXY_DOMAIN          Required for automatic config. NaiveProxy HTTPS domain.
@@ -185,8 +186,6 @@ sync_proxy_repo() {
         log "Using current project directory: $INSTALL_DIR"
         return
     fi
-
-    [ -n "$REPO_URL" ] || die "REPO_URL is required when deploy.sh is not run from the project directory"
 
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "Updating proxy repository: $INSTALL_DIR"

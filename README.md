@@ -17,13 +17,13 @@ The generated NaiveProxy Caddy site address includes `:443, PROXY_DOMAIN` so the
 Deploy only the proxy stack, with a generated placeholder website:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash
 ```
 
 Recommended for real websites: deploy with an existing local website directory on the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash
 ```
 
 `WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. This is the preferred path for larger website exports, rsync-managed content, backup restores, or content maintained outside GitHub.
@@ -59,6 +59,7 @@ Those generated values are also stored on the server in `.deploy-client.env`, wh
 
 Supported environment variables:
 
+- `REPO_URL`: proxy deployment repository to clone or update. Defaults to this repository.
 - `PROXY_DOMAIN`: required for generated config. NaiveProxy HTTPS domain.
 - `ACME_EMAIL`: required for generated config. Caddy ACME email.
 - `SITE_DOMAIN`: optional website/V2Ray domain. Defaults to `PROXY_DOMAIN`.
@@ -105,5 +106,5 @@ Update the proxy repo while keeping a local website directory:
 
 ```bash
 cd /opt/proxy-server-deploy
-sudo REPO_URL=https://github.com/songyouwei/proxy-server-deploy.git WEB_LOCAL_DIR=/srv/www ./deploy.sh
+sudo WEB_LOCAL_DIR=/srv/www ./deploy.sh
 ```

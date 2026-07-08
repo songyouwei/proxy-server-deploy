@@ -2,6 +2,8 @@ build/
 data/
 log/
 www/
+Caddyfile
+docker-compose.yml
 
 .env
 .deploy-client.env

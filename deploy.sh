@@ -179,7 +179,7 @@ random_secret() {
 }
 
 running_from_project_dir() {
-    [ -f "./docker-compose.yml" ] && [ -f "./Caddyfile" ] && [ -f "./build.sh" ]
+    [ -f "./deploy.sh" ] && [ -f "./build.sh" ]
 }
 
 sync_proxy_repo() {
@@ -235,7 +235,7 @@ write_compose_env() {
 }
 
 has_placeholder_config() {
-    grep -Eq 'proxy\.example\.com|change-this-password' Caddyfile
+    [ ! -f Caddyfile ] || grep -Eq 'proxy\.example\.com|change-this-password' Caddyfile
 }
 
 should_auto_configure() {
@@ -317,6 +317,27 @@ EOF
     chmod 600 "$CLIENT_ENV_FILE"
 }
 
+write_docker_compose() {
+    cd "$INSTALL_DIR"
+
+    log "Writing docker-compose.yml"
+
+    cat > docker-compose.yml <<'DOCKER_COMPOSE_EOF'
+services:
+  naive:
+    image: caddy-forwardproxy-naive:v2.10.0
+    container_name: proxy-caddy-naive
+    restart: always
+    network_mode: host
+    tty: true
+    volumes:
+      - ./Caddyfile:/etc/naiveproxy/Caddyfile:ro
+      - ./data:/root/.local/share/caddy
+      - ${WEB_SOURCE:-./www}:/var/www:ro
+      - ./log:/var/log/caddy
+DOCKER_COMPOSE_EOF
+}
+
 validate_project() {
     cd "$INSTALL_DIR"
 
@@ -371,6 +392,7 @@ main() {
     configure_firewall
     sync_web_repo
     write_generated_config
+    write_docker_compose
     validate_project
     build_image
     start_services

@@ -1,107 +1,24 @@
 # Proxy Server Deploy
 
-Generic Docker Compose deployment for a proxy server stack:
-
-- Caddy with `forwardproxy-naive` for NaiveProxy over HTTPS.
-- Optional static web content from an existing local directory.
-
-This repository intentionally does not include certificates, runtime data, logs, or website files.
+Caddy + NaiveProxy over HTTPS, one command.
 
 ## Quick Start
-
-The deploy script prompts for the minimum required values and uses defaults for the rest. It can also run non-interactively when values are provided as environment variables.
-If `ufw` is active, it also opens inbound TCP `80` and `443` automatically.
-The generated NaiveProxy Caddy site address includes `:443, PROXY_DOMAIN` so the forward proxy is available on the HTTPS listener.
-
-Deploy only the proxy stack, with a generated placeholder website:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo bash
 ```
 
-The script will ask for the proxy domain and ACME email.
-
-Recommended for real websites: deploy with an existing local website directory on the server:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_LOCAL_DIR=/srv/www bash
-```
-
-`WEB_LOCAL_DIR` is mounted read-only as `/var/www` inside the Caddy container. This is the preferred path for larger website exports, rsync-managed content, backup restores, or content maintained outside GitHub.
-
-Example website layout:
-
-```text
-/srv/www/
-  index.html
-  assets/
-  www.example.com/
-```
-
-The deploy script writes `WEB_SOURCE=/srv/www` into `.env` for Docker Compose, so later `docker compose up -d` keeps using the same local directory.
-
-If `NAIVE_PASSWORD` is not provided, the script generates it and prints the client value after deployment.
-Those generated values are also stored on the server in `.deploy-client.env`, which is ignored by Git.
-
-## Runtime Layout
-
-```text
-/opt/proxy-server-deploy/
-  Caddyfile
-  docker-compose.yml
-  data/     # Caddy certificates and runtime state, ignored by Git
-  log/      # Caddy logs, ignored by Git
-  www/      # default generated website directory, ignored by Git
-  .env      # Docker Compose runtime variables, ignored by Git
-```
-
-## Automatic Configuration
-
-Supported environment variables:
-
-- `REPO_URL`: proxy deployment repository to clone or update. Defaults to this repository.
-- `PROXY_DOMAIN`: NaiveProxy HTTPS domain. Prompted when missing.
-- `ACME_EMAIL`: Caddy ACME email. Prompted when missing.
-- `NAIVE_USER`: optional NaiveProxy username. Defaults to `proxy`.
-- `NAIVE_PASSWORD`: optional NaiveProxy password. Generated when empty.
-- `AUTO_CONFIG`: `auto`, `1`, or `0`. Defaults to `auto`.
-- `CLIENT_ENV_FILE`: generated client values file. Defaults to `.deploy-client.env`.
-- `WEB_LOCAL_DIR`: optional existing local directory mounted read-only as `/var/www`. Recommended for larger sites.
-- `WEB_DIR`: default website directory relative to `INSTALL_DIR`. Defaults to `www`.
-- `SKIP_FIREWALL_CONFIG`: set to `1` to skip automatic UFW configuration.
-
-If `WEB_LOCAL_DIR` is not set, the script creates `www/index.html` with a basic `hello` page and mounts that as `/var/www`.
-
-`AUTO_CONFIG=auto` writes generated config only when the checked-out `Caddyfile` still contains placeholders. Use `AUTO_CONFIG=1` to force regeneration on every deployment. Use `AUTO_CONFIG=0` if you maintain `Caddyfile` yourself.
-
-Ports `80` and `443` must be open, and all configured domains must resolve to the server before Caddy can issue TLS certificates. If `ufw` is installed and active, the deploy script automatically runs `ufw allow 80/tcp` and `ufw allow 443/tcp`.
-
 ## Commands
 
-Check status:
-
 ```bash
 cd /opt/proxy-server-deploy
+
+# Status
 sudo docker compose ps
-```
 
-Follow logs:
-
-```bash
-cd /opt/proxy-server-deploy
+# Logs
 sudo docker compose logs -f
-```
 
-Restart after config changes:
-
-```bash
-cd /opt/proxy-server-deploy
+# Restart after config changes
 sudo docker compose up -d
-```
-
-Update the proxy repo while keeping a local website directory:
-
-```bash
-cd /opt/proxy-server-deploy
-sudo WEB_LOCAL_DIR=/srv/www ./deploy.sh
 ```

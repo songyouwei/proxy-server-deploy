@@ -6,6 +6,7 @@ DEFAULT_INSTALL_DIR="/opt/proxy-server-deploy"
 DEFAULT_BRANCH="main"
 DEFAULT_WEB_DIR="www"
 DEFAULT_REPO_URL="https://github.com/songyouwei/proxy-server-deploy.git"
+DEFAULT_FORWARDPROXY_VERSION="v2.11.2"
 
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
@@ -21,6 +22,9 @@ ACME_EMAIL="${ACME_EMAIL:-}"
 PROXY_DOMAIN="${PROXY_DOMAIN:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
+FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-$DEFAULT_FORWARDPROXY_VERSION}"
+IMAGE_NAME="caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}"
+export FORWARDPROXY_VERSION
 
 usage() {
     cat <<'EOF'
@@ -46,6 +50,7 @@ Environment:
   WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
+  FORWARDPROXY_VERSION  klzgrad/forwardproxy release to build. Default: v2.11.2.
   SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
 EOF
 }
@@ -340,10 +345,10 @@ EOF
 }
 
 render_docker_compose() {
-    cat <<'DOCKER_COMPOSE_EOF'
+    cat <<EOF
 services:
   naive:
-    image: caddy-forwardproxy-naive:v2.10.0
+    image: ${IMAGE_NAME}
     container_name: proxy-caddy-naive
     restart: always
     network_mode: host
@@ -351,9 +356,9 @@ services:
     volumes:
       - ./Caddyfile:/etc/naiveproxy/Caddyfile:ro
       - ./data:/root/.local/share/caddy
-      - ${WEB_SOURCE:-./www}:/var/www:ro
+      - \${WEB_SOURCE:-./www}:/var/www:ro
       - ./log:/var/log/caddy
-DOCKER_COMPOSE_EOF
+EOF
 }
 
 write_docker_compose() {
@@ -385,12 +390,12 @@ validate_project() {
 build_image() {
     cd "$INSTALL_DIR"
 
-    if [ "$FORCE_REBUILD" != "1" ] && docker image inspect caddy-forwardproxy-naive:v2.10.0 >/dev/null 2>&1; then
-        log "Docker image already exists: caddy-forwardproxy-naive:v2.10.0"
+    if [ "$FORCE_REBUILD" != "1" ] && docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        log "Docker image already exists: $IMAGE_NAME"
         return
     fi
 
-    log "Building caddy-forwardproxy-naive:v2.10.0"
+    log "Building $IMAGE_NAME"
     ./build.sh
 }
 

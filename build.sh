@@ -2,11 +2,12 @@
 
 set -euo pipefail
 
-RELEASE_URL="${RELEASE_URL:-https://github.com/klzgrad/forwardproxy/releases/download/v2.10.0-naive/caddy-forwardproxy-naive.tar.xz}"
+FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-v2.11.2}"
+RELEASE_URL="${RELEASE_URL:-https://github.com/klzgrad/forwardproxy/releases/download/${FORWARDPROXY_VERSION}-naive/caddy-forwardproxy-naive.tar.xz}"
 ASSET="caddy-forwardproxy-naive.tar.xz"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-IMAGE_NAME="${IMAGE_NAME:-caddy-forwardproxy-naive:v2.10.0}"
+IMAGE_NAME="${IMAGE_NAME:-caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}}"
 
 cleanup() {
     rm -rf "$BUILD_DIR"

@@ -2,30 +2,29 @@
 
 set -euo pipefail
 
-DEFAULT_FORWARDPROXY_VERSION="v2.11.2"
+DEFAULT_FORWARDPROXY_VERSION="v2.11.2-naive"
+FORWARDPROXY_ASSET="caddy-forwardproxy-naive.tar.xz"
 
-latest_forwardproxy_version() {
-    git ls-remote --tags --refs "https://github.com/klzgrad/forwardproxy.git" 2>/dev/null \
-        | awk -F'refs/tags/' '{print $2}' \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-naive$' \
-        | sed 's/-naive$//' \
-        | sort -V \
-        | tail -n1
+latest_forwardproxy_tag() {
+    curl -fsSI "https://github.com/klzgrad/forwardproxy/releases/latest/download/${FORWARDPROXY_ASSET}" 2>/dev/null \
+        | tr -d '\r' \
+        | awk 'tolower($1) == "location:" {print $2}' \
+        | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p'
 }
 
 FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-}"
 if [ -z "$FORWARDPROXY_VERSION" ]; then
-    echo "==> Detecting latest klzgrad/forwardproxy release..."
-    FORWARDPROXY_VERSION="$(latest_forwardproxy_version)" || true
+    echo "==> Detecting latest klzgrad/forwardproxy release with a $FORWARDPROXY_ASSET asset..."
+    FORWARDPROXY_VERSION="$(latest_forwardproxy_tag)" || true
     if [ -n "$FORWARDPROXY_VERSION" ]; then
-        echo "==> Using forwardproxy $FORWARDPROXY_VERSION"
+        echo "==> Using forwardproxy release $FORWARDPROXY_VERSION"
     else
         FORWARDPROXY_VERSION="$DEFAULT_FORWARDPROXY_VERSION"
         echo "==> Could not detect latest forwardproxy release; falling back to $FORWARDPROXY_VERSION"
     fi
 fi
-RELEASE_URL="${RELEASE_URL:-https://github.com/klzgrad/forwardproxy/releases/download/${FORWARDPROXY_VERSION}-naive/caddy-forwardproxy-naive.tar.xz}"
-ASSET="caddy-forwardproxy-naive.tar.xz"
+RELEASE_URL="${RELEASE_URL:-https://github.com/klzgrad/forwardproxy/releases/download/${FORWARDPROXY_VERSION}/${FORWARDPROXY_ASSET}}"
+ASSET="$FORWARDPROXY_ASSET"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 IMAGE_NAME="${IMAGE_NAME:-caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}}"

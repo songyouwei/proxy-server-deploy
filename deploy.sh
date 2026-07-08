@@ -6,7 +6,8 @@ DEFAULT_INSTALL_DIR="/opt/proxy-server-deploy"
 DEFAULT_BRANCH="main"
 DEFAULT_WEB_DIR="www"
 DEFAULT_REPO_URL="https://github.com/songyouwei/proxy-server-deploy.git"
-DEFAULT_FORWARDPROXY_VERSION="v2.11.2"
+DEFAULT_FORWARDPROXY_VERSION="v2.11.2-naive"
+FORWARDPROXY_ASSET="caddy-forwardproxy-naive.tar.xz"
 
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
@@ -48,7 +49,7 @@ Environment:
   WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
-  FORWARDPROXY_VERSION  klzgrad/forwardproxy release to build. Default: latest -naive release, detected automatically.
+  FORWARDPROXY_VERSION  klzgrad/forwardproxy release tag to build, e.g. v2.11.2-naive. Default: latest release with a caddy-forwardproxy-naive.tar.xz asset, detected automatically.
   SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
 EOF
 }
@@ -181,21 +182,19 @@ random_secret() {
     fi
 }
 
-latest_forwardproxy_version() {
-    git ls-remote --tags --refs "https://github.com/klzgrad/forwardproxy.git" 2>/dev/null \
-        | awk -F'refs/tags/' '{print $2}' \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-naive$' \
-        | sed 's/-naive$//' \
-        | sort -V \
-        | tail -n1
+latest_forwardproxy_tag() {
+    curl -fsSI "https://github.com/klzgrad/forwardproxy/releases/latest/download/${FORWARDPROXY_ASSET}" 2>/dev/null \
+        | tr -d '\r' \
+        | awk 'tolower($1) == "location:" {print $2}' \
+        | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p'
 }
 
 resolve_forwardproxy_version() {
     if [ -z "$FORWARDPROXY_VERSION" ]; then
-        log "Detecting latest klzgrad/forwardproxy release"
-        FORWARDPROXY_VERSION="$(latest_forwardproxy_version)" || true
+        log "Detecting latest klzgrad/forwardproxy release with a $FORWARDPROXY_ASSET asset"
+        FORWARDPROXY_VERSION="$(latest_forwardproxy_tag)" || true
         if [ -n "$FORWARDPROXY_VERSION" ]; then
-            log "Using forwardproxy $FORWARDPROXY_VERSION"
+            log "Using forwardproxy release $FORWARDPROXY_VERSION"
         else
             FORWARDPROXY_VERSION="$DEFAULT_FORWARDPROXY_VERSION"
             log "Could not detect latest forwardproxy release; falling back to $FORWARDPROXY_VERSION"

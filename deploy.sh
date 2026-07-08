@@ -430,6 +430,10 @@ start_services() {
 
     log "Starting services"
     docker compose up -d --remove-orphans
+    # Caddyfile/docker-compose.yml are bind-mounted; up -d only recreates a
+    # container when the compose config itself changes, not the mounted
+    # file's content, so restart unconditionally to pick up edits.
+    docker compose restart
     docker compose ps
 
     if [ -n "$PROXY_DOMAIN" ]; then

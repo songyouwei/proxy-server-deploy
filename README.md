@@ -27,6 +27,10 @@ sudo docker compose ps
 # Logs
 sudo docker compose logs -f
 
-# Restart after config changes
-sudo docker compose up -d
+# Restart after editing Caddyfile
+sudo docker compose restart
+
+# Update to the latest forwardproxy release and redeploy
+# (repeat any WEB_LOCAL_DIR etc. used for the initial deploy)
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_LOCAL_DIR=/srv/www bash
 ```

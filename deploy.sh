@@ -182,6 +182,25 @@ running_from_project_dir() {
     [ -f "./deploy.sh" ] && [ -f "./build.sh" ]
 }
 
+set_aside_generated_files() {
+    local f
+    for f in Caddyfile docker-compose.yml; do
+        if [ -f "$INSTALL_DIR/$f" ]; then
+            mv "$INSTALL_DIR/$f" "$INSTALL_DIR/$f.pending"
+            git -C "$INSTALL_DIR" rm --cached --quiet -- "$f" >/dev/null 2>&1 || true
+        fi
+    done
+}
+
+restore_generated_files() {
+    local f
+    for f in Caddyfile docker-compose.yml; do
+        if [ -f "$INSTALL_DIR/$f.pending" ]; then
+            mv "$INSTALL_DIR/$f.pending" "$INSTALL_DIR/$f"
+        fi
+    done
+}
+
 sync_proxy_repo() {
     if running_from_project_dir; then
         INSTALL_DIR="$(pwd)"
@@ -192,8 +211,10 @@ sync_proxy_repo() {
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "Updating proxy repository: $INSTALL_DIR"
         git -C "$INSTALL_DIR" fetch --all --prune
+        set_aside_generated_files
         git -C "$INSTALL_DIR" checkout "$BRANCH"
         git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
+        restore_generated_files
     else
         log "Cloning proxy repository into $INSTALL_DIR"
         mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -276,6 +297,7 @@ write_generated_config() {
     cd "$INSTALL_DIR"
 
     if ! should_auto_configure; then
+        [ -f Caddyfile ] || die "AUTO_CONFIG=$AUTO_CONFIG requires an existing Caddyfile at $INSTALL_DIR/Caddyfile; provide one first, or unset AUTO_CONFIG to generate one automatically"
         return
     fi
 
@@ -317,12 +339,8 @@ EOF
     chmod 600 "$CLIENT_ENV_FILE"
 }
 
-write_docker_compose() {
-    cd "$INSTALL_DIR"
-
-    log "Writing docker-compose.yml"
-
-    cat > docker-compose.yml <<'DOCKER_COMPOSE_EOF'
+render_docker_compose() {
+    cat <<'DOCKER_COMPOSE_EOF'
 services:
   naive:
     image: caddy-forwardproxy-naive:v2.10.0
@@ -336,6 +354,21 @@ services:
       - ${WEB_SOURCE:-./www}:/var/www:ro
       - ./log:/var/log/caddy
 DOCKER_COMPOSE_EOF
+}
+
+write_docker_compose() {
+    cd "$INSTALL_DIR"
+
+    local generated
+    generated="$(render_docker_compose)"
+
+    if [ -f docker-compose.yml ] && [ "$(cat docker-compose.yml)" != "$generated" ]; then
+        log "Existing docker-compose.yml differs from the generated template; backing up to docker-compose.yml.bak"
+        cp docker-compose.yml docker-compose.yml.bak
+    fi
+
+    log "Writing docker-compose.yml"
+    printf '%s\n' "$generated" > docker-compose.yml
 }
 
 validate_project() {

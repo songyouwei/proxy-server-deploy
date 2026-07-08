@@ -22,9 +22,7 @@ ACME_EMAIL="${ACME_EMAIL:-}"
 PROXY_DOMAIN="${PROXY_DOMAIN:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
-FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-$DEFAULT_FORWARDPROXY_VERSION}"
-IMAGE_NAME="caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}"
-export FORWARDPROXY_VERSION
+FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-}"
 
 usage() {
     cat <<'EOF'
@@ -50,7 +48,7 @@ Environment:
   WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
-  FORWARDPROXY_VERSION  klzgrad/forwardproxy release to build. Default: v2.11.2.
+  FORWARDPROXY_VERSION  klzgrad/forwardproxy release to build. Default: latest -naive release, detected automatically.
   SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
 EOF
 }
@@ -181,6 +179,30 @@ random_secret() {
     else
         date +%s%N | sha256sum | awk '{print $1}'
     fi
+}
+
+latest_forwardproxy_version() {
+    git ls-remote --tags --refs "https://github.com/klzgrad/forwardproxy.git" 2>/dev/null \
+        | awk -F'refs/tags/' '{print $2}' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-naive$' \
+        | sed 's/-naive$//' \
+        | sort -V \
+        | tail -n1
+}
+
+resolve_forwardproxy_version() {
+    if [ -z "$FORWARDPROXY_VERSION" ]; then
+        log "Detecting latest klzgrad/forwardproxy release"
+        FORWARDPROXY_VERSION="$(latest_forwardproxy_version)" || true
+        if [ -n "$FORWARDPROXY_VERSION" ]; then
+            log "Using forwardproxy $FORWARDPROXY_VERSION"
+        else
+            FORWARDPROXY_VERSION="$DEFAULT_FORWARDPROXY_VERSION"
+            log "Could not detect latest forwardproxy release; falling back to $FORWARDPROXY_VERSION"
+        fi
+    fi
+    IMAGE_NAME="caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}"
+    export FORWARDPROXY_VERSION
 }
 
 running_from_project_dir() {
@@ -424,6 +446,7 @@ main() {
     parse_args "$@"
     as_root
     install_packages
+    resolve_forwardproxy_version
     sync_proxy_repo
     prompt_config_inputs
     install_docker

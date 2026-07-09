@@ -13,17 +13,16 @@ INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
-WEB_LOCAL_DIR="${WEB_LOCAL_DIR:-}"
 SKIP_DOCKER_INSTALL="${SKIP_DOCKER_INSTALL:-0}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
 AUTO_CONFIG="${AUTO_CONFIG:-auto}"
-CLIENT_ENV_FILE="${CLIENT_ENV_FILE:-.deploy-client.env}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 PROXY_DOMAIN="${PROXY_DOMAIN:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
 FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-}"
+GENERATED_CLIENT_INFO=0
 
 usage() {
     cat <<'EOF'
@@ -33,7 +32,7 @@ Usage:
 Examples:
   sudo bash deploy.sh
   sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
-  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_LOCAL_DIR=/srv/www bash deploy.sh
+  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_DIR=/srv/www bash deploy.sh
 
 Environment:
   REPO_URL              Proxy deployment repository to clone or update. Default: https://github.com/songyouwei/proxy-server-deploy.git.
@@ -44,9 +43,9 @@ Environment:
   NAIVE_USER            NaiveProxy username. Default: proxy.
   NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
   AUTO_CONFIG           auto, 1, or 0. Default: auto.
-  CLIENT_ENV_FILE       Generated client values file. Default: .deploy-client.env.
-  WEB_DIR               Default website directory relative to INSTALL_DIR. Default: www.
-  WEB_LOCAL_DIR         Optional existing local website directory to mount as /var/www.
+  WEB_DIR               Website directory. A relative name is created under INSTALL_DIR
+                        (with a placeholder page if empty); an absolute path mounts an
+                        existing directory as-is. Default: www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
   FORWARDPROXY_VERSION  klzgrad/forwardproxy release tag to build, e.g. v2.11.2-naive. Default: latest release with a caddy-forwardproxy-naive.tar.xz asset, detected automatically.
@@ -251,19 +250,20 @@ sync_proxy_repo() {
 sync_web_repo() {
     cd "$INSTALL_DIR"
 
-    if [ -n "$WEB_LOCAL_DIR" ]; then
-        [ -d "$WEB_LOCAL_DIR" ] || die "WEB_LOCAL_DIR does not exist or is not a directory: $WEB_LOCAL_DIR"
-        log "Using local website directory: $WEB_LOCAL_DIR"
-        write_compose_env "$WEB_LOCAL_DIR"
-        return
-    fi
-
-    mkdir -p "$WEB_DIR"
-    if [ ! -f "$WEB_DIR/index.html" ]; then
-        printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>hello</title></head><body>hello</body></html>' > "$WEB_DIR/index.html"
-    fi
-
-    write_compose_env "./$WEB_DIR"
+    case "$WEB_DIR" in
+        /*)
+            [ -d "$WEB_DIR" ] || die "WEB_DIR does not exist or is not a directory: $WEB_DIR"
+            log "Using local website directory: $WEB_DIR"
+            write_compose_env "$WEB_DIR"
+            ;;
+        *)
+            mkdir -p "$WEB_DIR"
+            if [ ! -f "$WEB_DIR/index.html" ]; then
+                printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>hello</title></head><body>hello</body></html>' > "$WEB_DIR/index.html"
+            fi
+            write_compose_env "./$WEB_DIR"
+            ;;
+    esac
 }
 
 write_compose_env() {
@@ -274,10 +274,10 @@ write_compose_env() {
     tmp_file="$(mktemp)"
 
     if [ -f "$COMPOSE_ENV_FILE" ]; then
-        grep -v '^WEB_SOURCE=' "$COMPOSE_ENV_FILE" > "$tmp_file" || true
+        grep -v '^WEB_DIR=' "$COMPOSE_ENV_FILE" > "$tmp_file" || true
     fi
 
-    printf 'WEB_SOURCE=%s\n' "$web_source" >> "$tmp_file"
+    printf 'WEB_DIR=%s\n' "$web_source" >> "$tmp_file"
     mv "$tmp_file" "$COMPOSE_ENV_FILE"
 }
 
@@ -357,12 +357,7 @@ EOF
 
     chmod 600 Caddyfile
 
-    cat > "$CLIENT_ENV_FILE" <<EOF
-PROXY_DOMAIN=${PROXY_DOMAIN}
-NAIVE_USER=${NAIVE_USER}
-NAIVE_PASSWORD=${NAIVE_PASSWORD}
-EOF
-    chmod 600 "$CLIENT_ENV_FILE"
+    GENERATED_CLIENT_INFO=1
 }
 
 render_docker_compose() {
@@ -377,7 +372,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/naiveproxy/Caddyfile:ro
       - ./data:/root/.local/share/caddy
-      - \${WEB_SOURCE:-./www}:/var/www:ro
+      - \${WEB_DIR:-./www}:/var/www:ro
       - ./log:/var/log/caddy
 EOF
 }
@@ -423,11 +418,6 @@ build_image() {
 start_services() {
     cd "$INSTALL_DIR"
 
-    if [ -f "$CLIENT_ENV_FILE" ]; then
-        # shellcheck disable=SC1090
-        . "./$CLIENT_ENV_FILE"
-    fi
-
     log "Starting services"
     docker compose up -d --remove-orphans
     # Caddyfile/docker-compose.yml are bind-mounted; up -d only recreates a
@@ -436,7 +426,10 @@ start_services() {
     docker compose restart
     docker compose ps
 
-    if [ -n "$PROXY_DOMAIN" ]; then
+    if [ "$GENERATED_CLIENT_INFO" = "1" ]; then
+        # Only printed right after auto-generating the Caddyfile: once you
+        # hand-edit it (e.g. multiple basic_auth users), there's no single
+        # canonical credential left to re-derive on later runs.
         printf '\nProxy client values:\n'
         printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN"
         printf '\n'

@@ -7,7 +7,7 @@ Caddy + NaiveProxy over HTTPS, one command.
 With an existing website directory on the server (most deployments):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_LOCAL_DIR=/srv/www bash
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_DIR=/srv/www bash
 ```
 
 Without one, a placeholder page is generated:
@@ -31,6 +31,6 @@ sudo docker compose logs -f
 sudo docker compose restart
 
 # Update to the latest forwardproxy release and redeploy
-# (repeat any WEB_LOCAL_DIR etc. used for the initial deploy)
-curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_LOCAL_DIR=/srv/www bash
+# (repeat any WEB_DIR etc. used for the initial deploy)
+curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo WEB_DIR=/srv/www bash
 ```

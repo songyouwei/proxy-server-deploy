@@ -8,6 +8,7 @@ DEFAULT_WEB_DIR="www"
 DEFAULT_REPO_URL="https://github.com/songyouwei/proxy-server-deploy.git"
 DEFAULT_FORWARDPROXY_VERSION="v2.11.2-naive"
 FORWARDPROXY_ASSET="caddy-forwardproxy-naive.tar.xz"
+DEFAULT_XRAY_VERSION="26.3.27"
 
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
@@ -22,6 +23,10 @@ PROXY_DOMAIN="${PROXY_DOMAIN:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
 FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-}"
+XRAY_VERSION="${XRAY_VERSION:-}"
+XRAY_UUID="${XRAY_UUID:-}"
+XRAY_WS_PATH="${XRAY_WS_PATH:-}"
+XRAY_PORT="${XRAY_PORT:-10086}"
 GENERATED_CLIENT_INFO=0
 
 usage() {
@@ -49,12 +54,14 @@ Environment:
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
   FORWARDPROXY_VERSION  klzgrad/forwardproxy release tag to build, e.g. v2.11.2-naive. Default: latest release with a caddy-forwardproxy-naive.tar.xz asset, detected automatically.
+  XRAY_VERSION          XTLS/Xray-core release to pull for the VLESS+WebSocket service. Default: latest stable release, detected automatically.
+  XRAY_PORT             Loopback port the Xray VLESS inbound listens on. Default: 10086.
   SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
 EOF
 }
 
 log() {
-    printf '==> %s\n' "$*"
+    printf '==> %s\n' "$*" >&2
 }
 
 die() {
@@ -181,6 +188,21 @@ random_secret() {
     fi
 }
 
+random_uuid() {
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        cat /proc/sys/kernel/random/uuid
+    elif command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr 'A-Z' 'a-z'
+    elif command -v openssl >/dev/null 2>&1; then
+        local hex
+        hex="$(openssl rand -hex 16)"
+        printf '%s-%s-%s-%s-%s\n' \
+            "${hex:0:8}" "${hex:8:4}" "${hex:12:4}" "${hex:16:4}" "${hex:20:12}"
+    else
+        date +%s%N | sha256sum | awk '{h=$1; print substr(h,1,8)"-"substr(h,9,4)"-"substr(h,13,4)"-"substr(h,17,4)"-"substr(h,21,12)}'
+    fi
+}
+
 latest_forwardproxy_tag() {
     curl -fsSI "https://github.com/klzgrad/forwardproxy/releases/latest/download/${FORWARDPROXY_ASSET}" 2>/dev/null \
         | tr -d '\r' \
@@ -188,19 +210,39 @@ latest_forwardproxy_tag() {
         | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p'
 }
 
-resolve_forwardproxy_version() {
-    if [ -z "$FORWARDPROXY_VERSION" ]; then
-        log "Detecting latest klzgrad/forwardproxy release with a $FORWARDPROXY_ASSET asset"
-        FORWARDPROXY_VERSION="$(latest_forwardproxy_tag)" || true
-        if [ -n "$FORWARDPROXY_VERSION" ]; then
-            log "Using forwardproxy release $FORWARDPROXY_VERSION"
+latest_xray_tag() {
+    curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases/latest" 2>/dev/null \
+        | grep -m1 '"tag_name"' \
+        | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/'
+}
+
+# $1: current value (may be empty), $2: label for logging, $3: fallback
+# version, $4: name of a function that echoes the detected latest tag.
+resolve_release_version() {
+    local current="$1" label="$2" fallback="$3" detector="$4"
+    if [ -z "$current" ]; then
+        log "Detecting latest $label release"
+        current="$("$detector")" || true
+        if [ -n "$current" ]; then
+            log "Using $label release $current"
         else
-            FORWARDPROXY_VERSION="$DEFAULT_FORWARDPROXY_VERSION"
-            log "Could not detect latest forwardproxy release; falling back to $FORWARDPROXY_VERSION"
+            current="$fallback"
+            log "Could not detect latest $label release; falling back to $current"
         fi
     fi
+    printf '%s' "$current"
+}
+
+resolve_forwardproxy_version() {
+    FORWARDPROXY_VERSION="$(resolve_release_version "$FORWARDPROXY_VERSION" "klzgrad/forwardproxy" "$DEFAULT_FORWARDPROXY_VERSION" latest_forwardproxy_tag)"
     IMAGE_NAME="caddy-forwardproxy-naive:${FORWARDPROXY_VERSION}"
     export FORWARDPROXY_VERSION
+}
+
+resolve_xray_version() {
+    XRAY_VERSION="$(resolve_release_version "$XRAY_VERSION" "XTLS/Xray-core" "$DEFAULT_XRAY_VERSION" latest_xray_tag)"
+    XRAY_IMAGE="ghcr.io/xtls/xray-core:${XRAY_VERSION}"
+    export XRAY_VERSION
 }
 
 running_from_project_dir() {
@@ -319,11 +361,91 @@ prompt_config_inputs() {
     fi
 }
 
+validate_xray_uuid() {
+    case "$1" in
+        *[!A-Za-z0-9-]*|"") die "XRAY_UUID must be a non-empty string of letters, digits, and hyphens only (got: $1)" ;;
+    esac
+}
+
+validate_xray_ws_path() {
+    case "$1" in
+        /*) ;;
+        *) die "XRAY_WS_PATH must start with / (got: $1)" ;;
+    esac
+    case "$1" in
+        *[!A-Za-z0-9/_-]*) die "XRAY_WS_PATH may only contain letters, digits, /, _, and - (got: $1)" ;;
+    esac
+}
+
+# Writes xray/config.json from the current XRAY_UUID/XRAY_WS_PATH/XRAY_PORT.
+# Caller is responsible for validating/deriving those first.
+write_xray_config() {
+    mkdir -p xray
+    cat > xray/config.json <<EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": ${XRAY_PORT},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          { "id": "${XRAY_UUID}", "level": 0 }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "${XRAY_WS_PATH}"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom" }
+  ]
+}
+EOF
+    # The xray container runs as root (see render_docker_compose) specifically
+    # so this can stay owner-only instead of being world-readable.
+    chmod 600 xray/config.json
+}
+
+# Existing installs from before VLESS/Xray support have a real Caddyfile but
+# no xray/config.json yet. Provision just that piece in place instead of
+# forcing a full AUTO_CONFIG=1 reconfigure, which would also rotate
+# NAIVE_PASSWORD and break already-configured NaiveProxy clients.
+backfill_xray_config() {
+    [ -f xray/config.json ] && return
+
+    XRAY_UUID="${XRAY_UUID:-$(random_uuid)}"
+    XRAY_WS_PATH="${XRAY_WS_PATH:-/$(random_secret)}"
+    validate_xray_uuid "$XRAY_UUID"
+    validate_xray_ws_path "$XRAY_WS_PATH"
+
+    log "No xray/config.json found; generating one for the VLESS+WebSocket service"
+    write_xray_config
+
+    local ws_path_encoded="${XRAY_WS_PATH//\//%2F}"
+    printf '\nGenerated xray/config.json for VLESS+WebSocket (Caddyfile left untouched).\n'
+    printf 'Add this line to the site block in %s/Caddyfile, above file_server, then run:\n' "$INSTALL_DIR"
+    printf '  reverse_proxy %s 127.0.0.1:%s\n' "$XRAY_WS_PATH" "$XRAY_PORT"
+    printf '  sudo docker compose restart\n'
+    printf 'Once added, this is the client URL:\n'
+    printf '  vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s&sni=%s#%s\n\n' \
+        "$XRAY_UUID" "$PROXY_DOMAIN" "$PROXY_DOMAIN" "$ws_path_encoded" "$PROXY_DOMAIN" "$PROXY_DOMAIN"
+}
+
 write_generated_config() {
     cd "$INSTALL_DIR"
 
     if ! should_auto_configure; then
         [ -f Caddyfile ] || die "AUTO_CONFIG=$AUTO_CONFIG requires an existing Caddyfile at $INSTALL_DIR/Caddyfile; provide one first, or unset AUTO_CONFIG to generate one automatically"
+        backfill_xray_config
         return
     fi
 
@@ -331,6 +453,10 @@ write_generated_config() {
     [ -n "$ACME_EMAIL" ] || die "ACME_EMAIL is required for automatic config"
 
     NAIVE_PASSWORD="${NAIVE_PASSWORD:-$(random_secret)}"
+    XRAY_UUID="${XRAY_UUID:-$(random_uuid)}"
+    XRAY_WS_PATH="${XRAY_WS_PATH:-/$(random_secret)}"
+    validate_xray_uuid "$XRAY_UUID"
+    validate_xray_ws_path "$XRAY_WS_PATH"
 
     log "Writing generated Caddyfile"
 
@@ -348,6 +474,8 @@ write_generated_config() {
     probe_resistance
   }
 
+  reverse_proxy ${XRAY_WS_PATH} 127.0.0.1:${XRAY_PORT}
+
   file_server {
     root /var/www
     browse
@@ -356,6 +484,9 @@ write_generated_config() {
 EOF
 
     chmod 600 Caddyfile
+
+    log "Writing generated Xray VLESS+WebSocket config"
+    write_xray_config
 
     GENERATED_CLIENT_INFO=1
 }
@@ -374,6 +505,17 @@ services:
       - ./data:/root/.local/share/caddy
       - \${WEB_DIR:-./www}:/var/www:ro
       - ./log:/var/log/caddy
+
+  xray:
+    image: ${XRAY_IMAGE}
+    container_name: proxy-xray
+    restart: always
+    network_mode: host
+    # Image defaults to a nonroot UID; run as root so it can read the
+    # owner-only (600) bind-mounted config regardless of host UID mapping.
+    user: "0:0"
+    volumes:
+      - ./xray:/usr/local/etc/xray:ro
 EOF
 }
 
@@ -397,6 +539,7 @@ validate_project() {
 
     [ -f docker-compose.yml ] || die "missing docker-compose.yml"
     [ -f Caddyfile ] || die "missing Caddyfile"
+    [ -f xray/config.json ] || die "missing xray/config.json"
     [ -f build.sh ] || die "missing build.sh"
 
     mkdir -p data log
@@ -430,8 +573,11 @@ start_services() {
         # Only printed right after auto-generating the Caddyfile: once you
         # hand-edit it (e.g. multiple basic_auth users), there's no single
         # canonical credential left to re-derive on later runs.
+        local ws_path_encoded="${XRAY_WS_PATH//\//%2F}"
         printf '\nProxy client values:\n'
         printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN"
+        printf '  VLESS URL: vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s&sni=%s#%s\n' \
+            "$XRAY_UUID" "$PROXY_DOMAIN" "$PROXY_DOMAIN" "$ws_path_encoded" "$PROXY_DOMAIN" "$PROXY_DOMAIN"
         printf '\n'
     fi
 
@@ -443,6 +589,7 @@ main() {
     as_root
     install_packages
     resolve_forwardproxy_version
+    resolve_xray_version
     sync_proxy_repo
     prompt_config_inputs
     install_docker

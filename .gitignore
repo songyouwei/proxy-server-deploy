@@ -5,6 +5,7 @@ www/
 Caddyfile
 docker-compose.yml
 docker-compose.yml.bak
+xray/
 
 .env
 *.log

@@ -13,7 +13,7 @@ DEFAULT_XRAY_VERSION="26.3.27"
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
-WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
+WEB_DIR="${WEB_DIR:-}"
 SKIP_DOCKER_INSTALL="${SKIP_DOCKER_INSTALL:-0}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
 AUTO_CONFIG="${AUTO_CONFIG:-auto}"
@@ -48,9 +48,9 @@ Environment:
   NAIVE_USER            NaiveProxy username. Default: proxy.
   NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
   AUTO_CONFIG           auto, 1, or 0. Default: auto.
-  WEB_DIR               Website directory. A relative name is created under INSTALL_DIR
-                        (with a placeholder page if empty); an absolute path mounts an
-                        existing directory as-is. Default: www.
+  WEB_DIR               Website directory. Prompted when missing (leave blank for a
+                        placeholder page). A relative name is created under INSTALL_DIR;
+                        an absolute path mounts an existing directory as-is. Default: www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
   FORWARDPROXY_VERSION  klzgrad/forwardproxy release tag to build, e.g. v2.11.2-naive. Default: latest release with a caddy-forwardproxy-naive.tar.xz asset, detected automatically.
@@ -119,6 +119,22 @@ prompt_into() {
         fi
         printf '%s cannot be empty.\n' "$name" > /dev/tty
     done
+}
+
+# Like prompt_into, but an empty answer is accepted and falls back to $3.
+prompt_optional_into() {
+    local name="$1"
+    local prompt="$2"
+    local default_value="$3"
+    local value
+
+    if ! { : < /dev/tty; } 2>/dev/null; then
+        return
+    fi
+
+    printf '%s [default: %s]: ' "$prompt" "$default_value" > /dev/tty
+    IFS= read -r value < /dev/tty || die "failed to read $name"
+    printf -v "$name" '%s' "${value:-$default_value}"
 }
 
 install_packages() {
@@ -292,6 +308,8 @@ sync_proxy_repo() {
 sync_web_repo() {
     cd "$INSTALL_DIR"
 
+    WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
+
     case "$WEB_DIR" in
         /*)
             [ -d "$WEB_DIR" ] || die "WEB_DIR does not exist or is not a directory: $WEB_DIR"
@@ -358,6 +376,10 @@ prompt_config_inputs() {
 
     if [ -z "$ACME_EMAIL" ]; then
         prompt_into ACME_EMAIL 'ACME email for TLS certificates'
+    fi
+
+    if [ -z "$WEB_DIR" ]; then
+        prompt_optional_into WEB_DIR 'Website directory to serve (leave blank for a placeholder page)' "$DEFAULT_WEB_DIR"
     fi
 }
 

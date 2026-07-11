@@ -48,4 +48,17 @@ sudo docker compose logs -f     # logs
 sudo docker compose restart     # restart after editing Caddyfile
 ```
 
-To update to the latest releases and redeploy, just re-run the deploy command (with the same options you used initially).
+## Updating
+
+Once deployed, just re-run the deploy script with no options to pull the latest code and
+redeploy:
+
+```bash
+cd /opt/proxy-server-deploy
+sudo bash deploy.sh
+```
+
+Your existing Caddyfile, credentials, and `WEB_DIR` are detected and left as-is — they're
+only touched again if you explicitly pass new values (or if the Caddyfile still looks like
+the untouched placeholder, e.g. right after a fresh clone). The NaiveProxy and Xray images
+are only rebuilt/pulled when a newer upstream release is available.

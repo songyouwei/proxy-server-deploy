@@ -454,8 +454,13 @@ backfill_xray_config() {
 
     local ws_path_encoded="${XRAY_WS_PATH//\//%2F}"
     printf '\nGenerated xray/config.json for VLESS+WebSocket (Caddyfile left untouched).\n'
-    printf 'Add this line to the site block in %s/Caddyfile, above file_server, then run:\n' "$INSTALL_DIR"
-    printf '  reverse_proxy %s 127.0.0.1:%s\n' "$XRAY_WS_PATH" "$XRAY_PORT"
+    printf 'Add this to the site block in %s/Caddyfile, above file_server, then run:\n' "$INSTALL_DIR"
+    printf '  @vless_ws {\n'
+    printf '    path %s\n' "$XRAY_WS_PATH"
+    printf '    header Connection *Upgrade*\n'
+    printf '    header Upgrade websocket\n'
+    printf '  }\n'
+    printf '  reverse_proxy @vless_ws 127.0.0.1:%s\n' "$XRAY_PORT"
     printf '  sudo docker compose restart\n'
     printf 'Once added, this is the client URL:\n'
     printf '  vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s&sni=%s#%s\n\n' \
@@ -496,7 +501,12 @@ write_generated_config() {
     probe_resistance
   }
 
-  reverse_proxy ${XRAY_WS_PATH} 127.0.0.1:${XRAY_PORT}
+  @vless_ws {
+    path ${XRAY_WS_PATH}
+    header Connection *Upgrade*
+    header Upgrade websocket
+  }
+  reverse_proxy @vless_ws 127.0.0.1:${XRAY_PORT}
 
   file_server {
     root /var/www

@@ -9,6 +9,8 @@ DEFAULT_REPO_URL="https://github.com/songyouwei/proxy-server-deploy.git"
 DEFAULT_FORWARDPROXY_VERSION="v2.11.2-naive"
 FORWARDPROXY_ASSET="caddy-forwardproxy-naive.tar.xz"
 DEFAULT_XRAY_VERSION="26.3.27"
+DEFAULT_PROXY_DOMAIN_VLESS="example.com"
+DEFAULT_PROXY_DOMAIN_NAIVE="direct.example.com"
 
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
@@ -19,7 +21,8 @@ FORCE_REBUILD="${FORCE_REBUILD:-0}"
 AUTO_CONFIG="${AUTO_CONFIG:-auto}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env}"
 ACME_EMAIL="${ACME_EMAIL:-}"
-PROXY_DOMAIN="${PROXY_DOMAIN:-}"
+PROXY_DOMAIN_VLESS="${PROXY_DOMAIN_VLESS:-}"
+PROXY_DOMAIN_NAIVE="${PROXY_DOMAIN_NAIVE:-}"
 NAIVE_USER="${NAIVE_USER:-proxy}"
 NAIVE_PASSWORD="${NAIVE_PASSWORD:-}"
 FORWARDPROXY_VERSION="${FORWARDPROXY_VERSION:-}"
@@ -36,14 +39,19 @@ Usage:
 
 Examples:
   sudo bash deploy.sh
-  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com bash deploy.sh
-  sudo PROXY_DOMAIN=proxy.example.com ACME_EMAIL=admin@example.com WEB_DIR=/srv/www bash deploy.sh
+  sudo PROXY_DOMAIN_VLESS=example.com PROXY_DOMAIN_NAIVE=direct.example.com ACME_EMAIL=admin@example.com bash deploy.sh
+  sudo PROXY_DOMAIN_VLESS=example.com PROXY_DOMAIN_NAIVE=direct.example.com ACME_EMAIL=admin@example.com WEB_DIR=/srv/www bash deploy.sh
 
 Environment:
   REPO_URL              Proxy deployment repository to clone or update. Default: https://github.com/songyouwei/proxy-server-deploy.git.
   BRANCH                Proxy deployment branch. Default: main.
   INSTALL_DIR           Target directory. Default: /opt/proxy-server-deploy.
-  PROXY_DOMAIN          NaiveProxy HTTPS domain. Prompted when missing.
+  PROXY_DOMAIN_VLESS    VLESS+WebSocket domain, fronted by a CDN (e.g. Cloudflare orange-cloud)
+                        to hide the origin IP. Served on both this domain and its www.
+                        subdomain. Prompted when missing. Default: example.com.
+  PROXY_DOMAIN_NAIVE    NaiveProxy HTTPS domain, connected to directly (no CDN, since
+                        NaiveProxy needs the real origin IP). Prompted when missing.
+                        Default: direct.example.com.
   ACME_EMAIL            Caddy ACME email. Prompted when missing.
   NAIVE_USER            NaiveProxy username. Default: proxy.
   NAIVE_PASSWORD        NaiveProxy password. Auto-generated when empty.
@@ -342,7 +350,7 @@ write_compose_env() {
 }
 
 has_placeholder_config() {
-    [ ! -f Caddyfile ] || grep -Eq 'proxy\.example\.com|change-this-password' Caddyfile
+    [ ! -f Caddyfile ] || grep -Eq '(^|[^.])example\.com|change-this-password' Caddyfile
 }
 
 should_auto_configure() {
@@ -370,8 +378,12 @@ prompt_config_inputs() {
         return
     fi
 
-    if [ -z "$PROXY_DOMAIN" ]; then
-        prompt_into PROXY_DOMAIN 'Proxy domain, for example proxy.example.com'
+    if [ -z "$PROXY_DOMAIN_VLESS" ]; then
+        prompt_optional_into PROXY_DOMAIN_VLESS 'VLESS+WebSocket domain (behind CDN, e.g. Cloudflare orange-cloud; also served on its www. subdomain)' "$DEFAULT_PROXY_DOMAIN_VLESS"
+    fi
+
+    if [ -z "$PROXY_DOMAIN_NAIVE" ]; then
+        prompt_optional_into PROXY_DOMAIN_NAIVE 'NaiveProxy domain (direct connection, no CDN)' "$DEFAULT_PROXY_DOMAIN_NAIVE"
     fi
 
     if [ -z "$ACME_EMAIL" ]; then
@@ -464,7 +476,7 @@ backfill_xray_config() {
     printf '  sudo docker compose restart\n'
     printf 'Once added, this is the client URL:\n'
     printf '  vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s&sni=%s#%s\n\n' \
-        "$XRAY_UUID" "$PROXY_DOMAIN" "$PROXY_DOMAIN" "$ws_path_encoded" "$PROXY_DOMAIN" "$PROXY_DOMAIN"
+        "$XRAY_UUID" "$PROXY_DOMAIN_VLESS" "$PROXY_DOMAIN_VLESS" "$ws_path_encoded" "$PROXY_DOMAIN_VLESS" "$PROXY_DOMAIN_VLESS"
 }
 
 write_generated_config() {
@@ -476,7 +488,8 @@ write_generated_config() {
         return
     fi
 
-    [ -n "$PROXY_DOMAIN" ] || die "PROXY_DOMAIN is required for automatic config"
+    [ -n "$PROXY_DOMAIN_VLESS" ] || die "PROXY_DOMAIN_VLESS is required for automatic config"
+    [ -n "$PROXY_DOMAIN_NAIVE" ] || die "PROXY_DOMAIN_NAIVE is required for automatic config"
     [ -n "$ACME_EMAIL" ] || die "ACME_EMAIL is required for automatic config"
 
     NAIVE_PASSWORD="${NAIVE_PASSWORD:-$(random_secret)}"
@@ -493,7 +506,7 @@ write_generated_config() {
   email ${ACME_EMAIL}
 }
 
-:443, ${PROXY_DOMAIN} {
+:443, ${PROXY_DOMAIN_NAIVE} {
   forward_proxy {
     basic_auth ${NAIVE_USER} ${NAIVE_PASSWORD}
     hide_ip
@@ -501,6 +514,13 @@ write_generated_config() {
     probe_resistance
   }
 
+  file_server {
+    root /var/www
+    browse
+  }
+}
+
+${PROXY_DOMAIN_VLESS}, www.${PROXY_DOMAIN_VLESS} {
   @vless_ws {
     path ${XRAY_WS_PATH}
     header Connection *Upgrade*
@@ -607,9 +627,9 @@ start_services() {
         # canonical credential left to re-derive on later runs.
         local ws_path_encoded="${XRAY_WS_PATH//\//%2F}"
         printf '\nProxy client values:\n'
-        printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN"
+        printf '  NaiveProxy URL: https://%s:%s@%s\n' "$NAIVE_USER" "$NAIVE_PASSWORD" "$PROXY_DOMAIN_NAIVE"
         printf '  VLESS URL: vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s&sni=%s#%s\n' \
-            "$XRAY_UUID" "$PROXY_DOMAIN" "$PROXY_DOMAIN" "$ws_path_encoded" "$PROXY_DOMAIN" "$PROXY_DOMAIN"
+            "$XRAY_UUID" "$PROXY_DOMAIN_VLESS" "$PROXY_DOMAIN_VLESS" "$ws_path_encoded" "$PROXY_DOMAIN_VLESS" "$PROXY_DOMAIN_VLESS"
         printf '\n'
     fi
 

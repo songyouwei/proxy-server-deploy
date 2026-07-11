@@ -2,9 +2,22 @@
 
 Caddy + NaiveProxy + VLESS (WebSocket via Xray-core) over HTTPS, one command.
 
+NaiveProxy and VLESS+WebSocket need two separate domains (or subdomains), because only
+VLESS+WebSocket can be fronted by a CDN to hide the origin IP:
+
+- `PROXY_DOMAIN_NAIVE` — NaiveProxy connects directly, with no CDN in front (a CDN would
+  break NaiveProxy's obfuscation), e.g. `direct.example.com`.
+- `PROXY_DOMAIN_VLESS` — VLESS+WebSocket goes through a CDN (e.g. Cloudflare orange-cloud)
+  to hide the origin IP, e.g. `example.com`. Served on both this domain and its `www.`
+  subdomain.
+
+Point `PROXY_DOMAIN_NAIVE` at the server's IP with the CDN disabled (grey-cloud in
+Cloudflare), and point `PROXY_DOMAIN_VLESS`/`www.PROXY_DOMAIN_VLESS` at the server through
+the CDN (orange-cloud in Cloudflare).
+
 ## One-command Deploy
 
-Default (prompts for domain/email/website directory — leave the directory blank for a placeholder page):
+Default (prompts for domains/email/website directory — leave the directory blank for a placeholder page):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo bash
@@ -16,7 +29,8 @@ With common options set explicitly:
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo \
   WEB_DIR=/srv/www \
   ACME_EMAIL=admin@example.com \
-  PROXY_DOMAIN=proxy.example.com \
+  PROXY_DOMAIN_VLESS=example.com \
+  PROXY_DOMAIN_NAIVE=direct.example.com \
   NAIVE_USER=proxy \
   NAIVE_PASSWORD=changeme \
   bash

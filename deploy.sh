@@ -58,7 +58,9 @@ Environment:
   AUTO_CONFIG           auto, 1, or 0. Default: auto.
   WEB_DIR               Website directory. Prompted when missing (leave blank for a
                         placeholder page). A relative name is created under INSTALL_DIR;
-                        an absolute path mounts an existing directory as-is. Default: www.
+                        an absolute path mounts an existing directory as-is. On redeploys,
+                        reuses the value already recorded in .env when left unset, so it
+                        is only needed the first time or to change it. Default: www.
   SKIP_DOCKER_INSTALL   Set to 1 to skip Docker installation checks.
   FORCE_REBUILD         Set to 1 to rebuild the Caddy naiveproxy image.
   FORWARDPROXY_VERSION  klzgrad/forwardproxy release tag to build, e.g. v2.11.2-naive. Default: latest release with a caddy-forwardproxy-naive.tar.xz asset, detected automatically.
@@ -313,9 +315,17 @@ sync_proxy_repo() {
     fi
 }
 
+existing_web_dir() {
+    [ -f "$COMPOSE_ENV_FILE" ] || return 0
+    grep '^WEB_DIR=' "$COMPOSE_ENV_FILE" | tail -n1 | cut -d= -f2- | sed 's#^\./##'
+}
+
 sync_web_repo() {
     cd "$INSTALL_DIR"
 
+    if [ -z "$WEB_DIR" ]; then
+        WEB_DIR="$(existing_web_dir)"
+    fi
     WEB_DIR="${WEB_DIR:-$DEFAULT_WEB_DIR}"
 
     case "$WEB_DIR" in

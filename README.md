@@ -2,28 +2,22 @@
 
 Caddy + NaiveProxy + VLESS (WebSocket via Xray-core) over HTTPS, one command.
 
-NaiveProxy and VLESS+WebSocket need two separate domains (or subdomains), because only
-VLESS+WebSocket can be fronted by a CDN to hide the origin IP:
-
-- `PROXY_DOMAIN_NAIVE` — NaiveProxy connects directly, with no CDN in front (a CDN would
-  break NaiveProxy's obfuscation), e.g. `direct.example.com`.
-- `PROXY_DOMAIN_VLESS` — VLESS+WebSocket goes through a CDN (e.g. Cloudflare orange-cloud)
-  to hide the origin IP, e.g. `example.com`. Served on both this domain and its `www.`
-  subdomain.
-
-Point `PROXY_DOMAIN_NAIVE` at the server's IP with the CDN disabled (grey-cloud in
-Cloudflare), and point `PROXY_DOMAIN_VLESS`/`www.PROXY_DOMAIN_VLESS` at the server through
-the CDN (orange-cloud in Cloudflare).
-
-## One-command Deploy
-
-Default (prompts for domains/email/website directory — leave the directory blank for a placeholder page):
+## Deploy
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo bash
 ```
 
-With common options set explicitly:
+Prompts for two domains, an ACME email, and a website directory (leave the directory blank
+for a placeholder page):
+
+- `PROXY_DOMAIN_NAIVE` — NaiveProxy, connected to directly with no CDN (a CDN would break its
+  obfuscation), e.g. `direct.example.com`. Point it at the server's IP with the CDN disabled
+  (grey-cloud in Cloudflare).
+- `PROXY_DOMAIN_VLESS` — VLESS+WebSocket, fronted by a CDN to hide the origin IP (orange-cloud
+  in Cloudflare), e.g. `example.com`. Served on both this domain and its `www.` subdomain.
+
+Or set everything non-interactively:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main/deploy.sh | sudo \
@@ -36,7 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/songyouwei/proxy-server-deploy/main
   bash
 ```
 
-On success, the script prints your NaiveProxy and VLESS client URLs — the VLESS URL works with v2rayN/v2rayNG, Shadowrocket, Quantumult X, Clash Meta/Verge, sing-box, etc.
+On success it prints your NaiveProxy and VLESS client URLs — the VLESS URL works with
+v2rayN/v2rayNG, Shadowrocket, Quantumult X, Clash Meta/Verge, sing-box, etc.
 
 ## Commands
 
@@ -50,15 +45,16 @@ sudo docker compose restart     # restart after editing Caddyfile
 
 ## Updating
 
-Once deployed, just re-run the deploy script with no options to pull the latest code and
-redeploy:
-
 ```bash
 cd /opt/proxy-server-deploy
 sudo bash deploy.sh
 ```
 
-Your existing Caddyfile, credentials, and `WEB_DIR` are detected and left as-is — they're
-only touched again if you explicitly pass new values (or if the Caddyfile still looks like
-the untouched placeholder, e.g. right after a fresh clone). The NaiveProxy and Xray images
-are only rebuilt/pulled when a newer upstream release is available.
+Re-running with no options pulls the latest code and redeploys. Your existing Caddyfile,
+credentials, and `WEB_DIR` are left as-is unless you pass new values.
+
+## Clients
+
+`clients/` holds companion scripts for connecting to a deployed server — e.g.
+`clients/mac_client.sh` runs a NaiveProxy or VLESS client on macOS as a LaunchAgent. Run it
+with no arguments for usage.

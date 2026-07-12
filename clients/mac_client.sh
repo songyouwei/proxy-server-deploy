@@ -8,20 +8,20 @@ set -euo pipefail
 # Which proxy to actually run day-to-day. Only one is needed at a time, so
 # both listen on the same local ports below — switch with:
 #   ./mac_client.sh restart naive   (or vless)
-# Pass an explicit "naive"/"vless"/"all" as the 2nd CLI arg to override this.
+# Pass an explicit "naive"/"vless" as the 2nd CLI arg to override this.
 ACTIVE_PROXY="naive"
 
+# Local SOCKS/HTTP ports, shared by whichever proxy is active.
+LISTEN_SOCKS="socks://127.0.0.1:1080"
+LISTEN_HTTP="http://127.0.0.1:1081"
+
 # --- NaiveProxy ---
-NAIVE_LISTEN_SOCKS="socks://127.0.0.1:1080"
-NAIVE_LISTEN_HTTP="http://127.0.0.1:1081"
 NAIVE_PROXY="https://user:pass@direct.example.com"
 
 # --- VLESS (via Xray-core) ---
 # Paste the full "vless://..." URL printed by deploy.sh on the server here.
 # Everything (uuid, host, port, ws path, sni) is parsed out of it.
 VLESS_URL="vless://uuid@example.com:443?encryption=none&security=tls&type=ws&path=%2Fpath"
-VLESS_LISTEN_SOCKS="socks://127.0.0.1:1080"
-VLESS_LISTEN_HTTP="http://127.0.0.1:1081"
 
 ### =========================
 ### INTERNAL VARIABLES
@@ -122,8 +122,8 @@ naive_create_plist() {
     <key>ProgramArguments</key>
     <array>
         <string>$NAIVE_BIN</string>
-        <string>--listen=$NAIVE_LISTEN_SOCKS</string>
-        <string>--listen=$NAIVE_LISTEN_HTTP</string>
+        <string>--listen=$LISTEN_SOCKS</string>
+        <string>--listen=$LISTEN_HTTP</string>
         <string>--proxy=$NAIVE_PROXY</string>
     </array>
 
@@ -272,7 +272,7 @@ vless_install() {
 }
 
 vless_listen_port() {
-    # Extracts the port from a "socks://127.0.0.1:1082"-style URL.
+    # Extracts the port from a "socks://127.0.0.1:1080"-style URL.
     echo "${1##*:}"
 }
 
@@ -281,8 +281,8 @@ vless_write_config() {
     mkdir -p "$VLESS_INSTALL_DIR"
 
     local socks_port http_port
-    socks_port="$(vless_listen_port "$VLESS_LISTEN_SOCKS")"
-    http_port="$(vless_listen_port "$VLESS_LISTEN_HTTP")"
+    socks_port="$(vless_listen_port "$LISTEN_SOCKS")"
+    http_port="$(vless_listen_port "$LISTEN_HTTP")"
 
     info "Writing Xray client config…"
     cat > "$VLESS_INSTALL_DIR/config.json" <<EOF

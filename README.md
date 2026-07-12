@@ -62,3 +62,23 @@ Your existing Caddyfile, credentials, and `WEB_DIR` are detected and left as-is 
 only touched again if you explicitly pass new values (or if the Caddyfile still looks like
 the untouched placeholder, e.g. right after a fresh clone). The NaiveProxy and Xray images
 are only rebuilt/pulled when a newer upstream release is available.
+
+## Client Setup
+
+This repo deploys the server; `clients/` holds companion scripts for connecting to it, kept
+here because they parse the exact URL formats `deploy.sh` prints above — not the project's
+main focus, just convenient for verifying a deploy end-to-end.
+
+`clients/mac_client.sh` runs a NaiveProxy or VLESS client locally as a LaunchAgent — only one
+at a time by default (both listen on the same local ports, so there's no need to run both).
+Edit the `USER CONFIGURATION` section at the top: set `ACTIVE_PROXY` to `naive` or `vless`,
+`NAIVE_PROXY` to your naiveproxy URL, and `VLESS_URL` to the `vless://...` URL printed above
+by `deploy.sh`. Then:
+
+```bash
+./clients/mac_client.sh install     # installs and starts ACTIVE_PROXY
+./clients/mac_client.sh status      # shows both, regardless of ACTIVE_PROXY
+./clients/mac_client.sh restart vless   # switch: change ACTIVE_PROXY, then restart
+```
+
+See `./clients/mac_client.sh` (no args) for the full command list.

@@ -53,8 +53,16 @@ sudo bash deploy.sh
 Re-running with no options pulls the latest code and redeploys. Your existing Caddyfile,
 credentials, and `WEB_DIR` are left as-is unless you pass new values.
 
+To check whether newer forwardproxy/Xray-core releases exist without redeploying:
+
+```bash
+cd /opt/proxy-server-deploy
+bash deploy.sh --check-updates
+```
+
 ## Clients
 
 `clients/` holds companion scripts for connecting to a deployed server — e.g.
 `clients/mac_client.sh` runs a NaiveProxy or VLESS client on macOS as a LaunchAgent. Run it
-with no arguments for usage.
+with no arguments for usage. `./mac_client.sh check` compares the installed naive/Xray-core
+binaries against the latest GitHub releases without downloading anything.

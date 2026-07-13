@@ -68,9 +68,14 @@ url_decode() {
 ### =========================
 
 naive_latest_release_url() {
+    # Asset names embed the arch (e.g. naiveproxy-vX-mac-arm64-arm64.tar.xz,
+    # historically also just ...-mac-arm64.tar.xz) so match "$NAIVE_ARCH"
+    # anywhere followed eventually by .tar.xz, rather than requiring it as
+    # the exact suffix.
     curl -fsSL "https://api.github.com/repos/$NAIVE_REPO/releases/latest" \
         | grep browser_download_url \
-        | grep "$NAIVE_ARCH.tar.xz" \
+        | grep -F "$NAIVE_ARCH" \
+        | grep '\.tar\.xz"' \
         | cut -d '"' -f 4
 }
 
@@ -173,6 +178,35 @@ naive_status() {
             | awk '/pid =/ {print "  PID     : " $3}'
     else
         echo "  Service : NOT running"
+    fi
+}
+
+naive_check() {
+    echo "▶ naiveproxy update check"
+
+    local url latest_tag installed
+    url="$(naive_latest_release_url)" || true
+    if [[ -z "$url" ]]; then
+        echo "  Could not fetch latest release (network issue or GitHub API rate limit?)"
+        return
+    fi
+    latest_tag="$(echo "$url" | sed -E 's#.*/download/([^/]+)/.*#\1#')"
+
+    if [[ -x "$NAIVE_BIN" ]]; then
+        installed="$("$NAIVE_BIN" --version 2>/dev/null | head -n1 || true)"
+    else
+        installed=""
+    fi
+
+    echo "  Installed : ${installed:-not installed}"
+    echo "  Latest    : $latest_tag"
+
+    if [[ -z "$installed" ]]; then
+        echo "  Status    : not installed -> run: $0 install naive"
+    elif [[ "$installed" == *"${latest_tag#v}"* ]]; then
+        echo "  Status    : up to date"
+    else
+        echo "  Status    : update available -> run: $0 upgrade naive"
     fi
 }
 
@@ -410,6 +444,35 @@ vless_status() {
     fi
 }
 
+vless_check() {
+    echo "▶ vlessproxy update check"
+
+    local url latest_tag installed
+    url="$(vless_latest_release_url)" || true
+    if [[ -z "$url" ]]; then
+        echo "  Could not fetch latest release (network issue or GitHub API rate limit?)"
+        return
+    fi
+    latest_tag="$(echo "$url" | sed -E 's#.*/download/([^/]+)/.*#\1#')"
+
+    if [[ -x "$VLESS_BIN" ]]; then
+        installed="$("$VLESS_BIN" version 2>/dev/null | head -n1 || true)"
+    else
+        installed=""
+    fi
+
+    echo "  Installed : ${installed:-not installed}"
+    echo "  Latest    : $latest_tag"
+
+    if [[ -z "$installed" ]]; then
+        echo "  Status    : not installed -> run: $0 install vless"
+    elif [[ "$installed" == *"${latest_tag#v}"* ]]; then
+        echo "  Status    : up to date"
+    else
+        echo "  Status    : update available -> run: $0 upgrade vless"
+    fi
+}
+
 vless_uninstall() {
     info "Uninstalling vlessproxy…"
     launchctl unload "$VLESS_PLIST" >/dev/null 2>&1 || true
@@ -482,13 +545,17 @@ case "$cmd" in
         naive_status
         vless_status
         ;;
+    check)
+        naive_check
+        vless_check
+        ;;
     uninstall)
         naive_uninstall
         vless_uninstall
         ;;
     *)
         cat <<EOF
-Usage: $0 {install|upgrade|start|stop|restart|status|uninstall} [naive|vless]
+Usage: $0 {install|upgrade|start|stop|restart|status|check|uninstall} [naive|vless]
 
 Commands:
   install | upgrade   Download latest release and start (target only)
@@ -496,6 +563,7 @@ Commands:
   stop                Stop both LaunchAgents
   restart             Restart (target only)
   status              Show running status and version for both
+  check               Compare installed vs latest release for both (no download)
   uninstall           Stop and remove all files for both
 
 Target (default: \$ACTIVE_PROXY, currently "$ACTIVE_PROXY"):

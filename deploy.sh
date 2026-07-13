@@ -31,16 +31,19 @@ XRAY_UUID="${XRAY_UUID:-}"
 XRAY_WS_PATH="${XRAY_WS_PATH:-}"
 XRAY_PORT="${XRAY_PORT:-10086}"
 GENERATED_CLIENT_INFO=0
+CHECK_UPDATES=0
 
 usage() {
     cat <<'EOF'
 Usage:
   sudo bash deploy.sh [--repo <git-url>] [--branch <branch>] [--dir <install-dir>]
+  bash deploy.sh --check-updates [--dir <install-dir>]
 
 Examples:
   sudo bash deploy.sh
   sudo PROXY_DOMAIN_VLESS=example.com PROXY_DOMAIN_NAIVE=direct.example.com ACME_EMAIL=admin@example.com bash deploy.sh
   sudo PROXY_DOMAIN_VLESS=example.com PROXY_DOMAIN_NAIVE=direct.example.com ACME_EMAIL=admin@example.com WEB_DIR=/srv/www bash deploy.sh
+  bash deploy.sh --check-updates
 
 Environment:
   REPO_URL              Proxy deployment repository to clone or update. Default: https://github.com/songyouwei/proxy-server-deploy.git.
@@ -67,6 +70,11 @@ Environment:
   XRAY_VERSION          XTLS/Xray-core release to pull for the VLESS+WebSocket service. Default: latest stable release, detected automatically.
   XRAY_PORT             Loopback port the Xray VLESS inbound listens on. Default: 10086.
   SKIP_FIREWALL_CONFIG  Set to 1 to skip automatic UFW 80/443 allow rules.
+
+--check-updates          Read-only: compare the versions in the deployed docker-compose.yml
+                          against the latest klzgrad/forwardproxy and XTLS/Xray-core releases,
+                          then exit. Does not touch Docker, firewall, or config; no root needed.
+                          Run "sudo bash deploy.sh" to actually apply an update.
 EOF
 }
 
@@ -99,6 +107,10 @@ parse_args() {
             --dir)
                 INSTALL_DIR="${2:-}"
                 shift 2
+                ;;
+            --check-updates)
+                CHECK_UPDATES=1
+                shift
                 ;;
             -h|--help)
                 usage
@@ -273,6 +285,47 @@ resolve_xray_version() {
 
 running_from_project_dir() {
     [ -f "./deploy.sh" ] && [ -f "./build.sh" ]
+}
+
+# Prints a "current vs latest" row for --check-updates. $1: component label,
+# $2: version currently in docker-compose.yml, $3: latest upstream version.
+print_update_row() {
+    local name="$1" current="$2" latest="$3" status
+    if [ -z "$latest" ]; then
+        status="unknown (release lookup failed)"
+    elif [ -z "$current" ]; then
+        status="not deployed yet"
+    elif [ "$current" = "$latest" ]; then
+        status="up to date"
+    else
+        status="update available"
+    fi
+    printf '%-22s %-18s %-18s %s\n' "$name" "${current:-?}" "${latest:-?}" "$status"
+}
+
+check_updates() {
+    local dir
+    if running_from_project_dir; then
+        dir="$(pwd)"
+    else
+        dir="$INSTALL_DIR"
+    fi
+
+    [ -f "$dir/docker-compose.yml" ] || die "no docker-compose.yml found in $dir; deploy first with: sudo bash deploy.sh"
+
+    local current_naive current_xray latest_naive latest_xray
+    current_naive="$(grep -oE 'caddy-forwardproxy-naive:[^[:space:]]+' "$dir/docker-compose.yml" | head -n1 | cut -d: -f2)"
+    current_xray="$(grep -oE 'ghcr\.io/xtls/xray-core:[^[:space:]]+' "$dir/docker-compose.yml" | head -n1 | cut -d: -f2)"
+
+    log "Checking latest klzgrad/forwardproxy release..."
+    latest_naive="$(latest_forwardproxy_tag)" || true
+    log "Checking latest XTLS/Xray-core release..."
+    latest_xray="$(latest_xray_tag)" || true
+
+    printf '\n%-22s %-18s %-18s %s\n' "Component" "Deployed" "Latest" "Status"
+    print_update_row "forwardproxy (naive)" "$current_naive" "$latest_naive"
+    print_update_row "xray-core (vless)" "$current_xray" "$latest_xray"
+    printf '\nTo apply an update: sudo bash deploy.sh\n'
 }
 
 set_aside_generated_files() {
@@ -648,6 +701,12 @@ start_services() {
 
 main() {
     parse_args "$@"
+
+    if [ "$CHECK_UPDATES" = "1" ]; then
+        check_updates
+        exit 0
+    fi
+
     as_root
     install_packages
     resolve_forwardproxy_version

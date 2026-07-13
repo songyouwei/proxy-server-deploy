@@ -191,6 +191,11 @@ naive_check() {
         return
     fi
     latest_tag="$(echo "$url" | sed -E 's#.*/download/([^/]+)/.*#\1#')"
+    # Tags look like "v150.0.7871.63-1": the Chromium version naive itself
+    # reports via --version, plus a trailing "-N" naiveproxy build counter
+    # that never appears in --version output. Strip it before comparing.
+    local latest_version="${latest_tag#v}"
+    latest_version="${latest_version%-*}"
 
     if [[ -x "$NAIVE_BIN" ]]; then
         installed="$("$NAIVE_BIN" --version 2>/dev/null | head -n1 || true)"
@@ -203,7 +208,7 @@ naive_check() {
 
     if [[ -z "$installed" ]]; then
         echo "  Status    : not installed -> run: $0 install naive"
-    elif [[ "$installed" == *"${latest_tag#v}"* ]]; then
+    elif [[ "$installed" == *"$latest_version"* ]]; then
         echo "  Status    : up to date"
     else
         echo "  Status    : update available -> run: $0 upgrade naive"

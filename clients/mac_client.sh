@@ -47,7 +47,10 @@ NAIVE_OS_PATTERN="mac|darwin"
 NAIVE_ARCH_TOKEN="arm64"
 
 XRAY_REPO="XTLS/Xray-core"
-XRAY_ASSET="Xray-macos-arm64-v8a.zip"
+# Matched independently, same rationale as NAIVE_OS_PATTERN/NAIVE_ARCH_TOKEN
+# above; see vless_latest_release_url().
+XRAY_OS_PATTERN="mac"
+XRAY_ARCH_TOKEN="arm64"
 
 ### =========================
 ### HELPERS
@@ -286,11 +289,22 @@ vless_parse_url() {
 }
 
 vless_latest_release_url() {
-    curl -fsSL "https://api.github.com/repos/$XRAY_REPO/releases/latest" \
+    local matches count
+    matches="$(curl -fsSL "https://api.github.com/repos/$XRAY_REPO/releases/latest" \
         | grep browser_download_url \
-        | grep -F "$XRAY_ASSET" \
+        | grep -iE "$XRAY_OS_PATTERN" \
+        | grep -F "$XRAY_ARCH_TOKEN" \
         | grep -v '\.dgst"' \
-        | cut -d '"' -f 4
+        | grep '\.zip"' \
+        | cut -d '"' -f 4)"
+
+    count="$(grep -c . <<< "$matches")"
+    if [[ "$count" -gt 1 ]]; then
+        echo "⚠ Multiple release assets matched os=$XRAY_OS_PATTERN arch=$XRAY_ARCH_TOKEN; using the first:" >&2
+        printf '%s\n' "$matches" >&2
+    fi
+
+    head -n1 <<< "$matches"
 }
 
 vless_install() {

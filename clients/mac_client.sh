@@ -40,7 +40,11 @@ NAIVE_PLIST="$HOME/Library/LaunchAgents/$NAIVE_LABEL.plist"
 VLESS_PLIST="$HOME/Library/LaunchAgents/$VLESS_LABEL.plist"
 
 NAIVE_REPO="klzgrad/naiveproxy"
-NAIVE_ARCH="mac-arm64"
+# Matched independently (not as one literal substring) so a naming reshuffle
+# like mac-arm64.tar.xz -> mac-arm64-arm64.tar.xz doesn't break the match;
+# see naive_latest_release_url().
+NAIVE_OS_PATTERN="mac|darwin"
+NAIVE_ARCH_TOKEN="arm64"
 
 XRAY_REPO="XTLS/Xray-core"
 XRAY_ASSET="Xray-macos-arm64-v8a.zip"
@@ -68,15 +72,25 @@ url_decode() {
 ### =========================
 
 naive_latest_release_url() {
-    # Asset names embed the arch (e.g. naiveproxy-vX-mac-arm64-arm64.tar.xz,
-    # historically also just ...-mac-arm64.tar.xz) so match "$NAIVE_ARCH"
-    # anywhere followed eventually by .tar.xz, rather than requiring it as
-    # the exact suffix.
-    curl -fsSL "https://api.github.com/repos/$NAIVE_REPO/releases/latest" \
+    # Asset filenames have been reshuffled before (mac-arm64.tar.xz ->
+    # mac-arm64-arm64.tar.xz) and could be again, so match the OS and arch
+    # tokens independently anywhere in the name, plus the extension,
+    # instead of one exact literal substring/suffix.
+    local matches count
+    matches="$(curl -fsSL "https://api.github.com/repos/$NAIVE_REPO/releases/latest" \
         | grep browser_download_url \
-        | grep -F "$NAIVE_ARCH" \
+        | grep -iE "$NAIVE_OS_PATTERN" \
+        | grep -F "$NAIVE_ARCH_TOKEN" \
         | grep '\.tar\.xz"' \
-        | cut -d '"' -f 4
+        | cut -d '"' -f 4)"
+
+    count="$(grep -c . <<< "$matches")"
+    if [[ "$count" -gt 1 ]]; then
+        echo "⚠ Multiple release assets matched os=[$NAIVE_OS_PATTERN] arch=$NAIVE_ARCH_TOKEN; using the first:" >&2
+        printf '%s\n' "$matches" >&2
+    fi
+
+    head -n1 <<< "$matches"
 }
 
 naive_install() {

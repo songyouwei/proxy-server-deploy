@@ -40,10 +40,17 @@ NAIVE_PLIST="$HOME/Library/LaunchAgents/$NAIVE_LABEL.plist"
 VLESS_PLIST="$HOME/Library/LaunchAgents/$VLESS_LABEL.plist"
 
 NAIVE_REPO="klzgrad/naiveproxy"
-NAIVE_ARCH="mac-arm64"
+# Matched independently (not as one literal substring) so a naming reshuffle
+# like mac-arm64.tar.xz -> mac-arm64-arm64.tar.xz doesn't break the match;
+# see naive_latest_release_url().
+NAIVE_OS_PATTERN="mac|darwin"
+NAIVE_ARCH_TOKEN="arm64"
 
 XRAY_REPO="XTLS/Xray-core"
-XRAY_ASSET="Xray-macos-arm64-v8a.zip"
+# Matched independently, same rationale as NAIVE_OS_PATTERN/NAIVE_ARCH_TOKEN
+# above; see vless_latest_release_url().
+XRAY_OS_PATTERN="mac"
+XRAY_ARCH_TOKEN="arm64"
 
 ### =========================
 ### HELPERS
@@ -68,10 +75,25 @@ url_decode() {
 ### =========================
 
 naive_latest_release_url() {
-    curl -fsSL "https://api.github.com/repos/$NAIVE_REPO/releases/latest" \
+    # Asset filenames have been reshuffled before (mac-arm64.tar.xz ->
+    # mac-arm64-arm64.tar.xz) and could be again, so match the OS and arch
+    # tokens independently anywhere in the name, plus the extension,
+    # instead of one exact literal substring/suffix.
+    local matches count
+    matches="$(curl -fsSL "https://api.github.com/repos/$NAIVE_REPO/releases/latest" \
         | grep browser_download_url \
-        | grep "$NAIVE_ARCH.tar.xz" \
-        | cut -d '"' -f 4
+        | grep -iE "$NAIVE_OS_PATTERN" \
+        | grep -F "$NAIVE_ARCH_TOKEN" \
+        | grep '\.tar\.xz"' \
+        | cut -d '"' -f 4)"
+
+    count="$(grep -c . <<< "$matches")"
+    if [[ "$count" -gt 1 ]]; then
+        echo "⚠ Multiple release assets matched os=[$NAIVE_OS_PATTERN] arch=$NAIVE_ARCH_TOKEN; using the first:" >&2
+        printf '%s\n' "$matches" >&2
+    fi
+
+    head -n1 <<< "$matches"
 }
 
 naive_install() {
@@ -176,6 +198,40 @@ naive_status() {
     fi
 }
 
+naive_check() {
+    echo "▶ naiveproxy update check"
+
+    local url latest_tag installed
+    url="$(naive_latest_release_url)" || true
+    if [[ -z "$url" ]]; then
+        echo "  Could not fetch latest release (network issue or GitHub API rate limit?)"
+        return
+    fi
+    latest_tag="$(echo "$url" | sed -E 's#.*/download/([^/]+)/.*#\1#')"
+    # Tags look like "v150.0.7871.63-1": the Chromium version naive itself
+    # reports via --version, plus a trailing "-N" naiveproxy build counter
+    # that never appears in --version output. Strip it before comparing.
+    local latest_version="${latest_tag#v}"
+    latest_version="${latest_version%-*}"
+
+    if [[ -x "$NAIVE_BIN" ]]; then
+        installed="$("$NAIVE_BIN" --version 2>/dev/null | head -n1 || true)"
+    else
+        installed=""
+    fi
+
+    echo "  Installed : ${installed:-not installed}"
+    echo "  Latest    : $latest_tag"
+
+    if [[ -z "$installed" ]]; then
+        echo "  Status    : not installed -> run: $0 install naive"
+    elif [[ "$installed" == *"$latest_version"* ]]; then
+        echo "  Status    : up to date"
+    else
+        echo "  Status    : update available -> run: $0 upgrade naive"
+    fi
+}
+
 naive_uninstall() {
     info "Uninstalling naiveproxy…"
     launchctl unload "$NAIVE_PLIST" >/dev/null 2>&1 || true
@@ -233,11 +289,22 @@ vless_parse_url() {
 }
 
 vless_latest_release_url() {
-    curl -fsSL "https://api.github.com/repos/$XRAY_REPO/releases/latest" \
+    local matches count
+    matches="$(curl -fsSL "https://api.github.com/repos/$XRAY_REPO/releases/latest" \
         | grep browser_download_url \
-        | grep -F "$XRAY_ASSET" \
+        | grep -iE "$XRAY_OS_PATTERN" \
+        | grep -F "$XRAY_ARCH_TOKEN" \
         | grep -v '\.dgst"' \
-        | cut -d '"' -f 4
+        | grep '\.zip"' \
+        | cut -d '"' -f 4)"
+
+    count="$(grep -c . <<< "$matches")"
+    if [[ "$count" -gt 1 ]]; then
+        echo "⚠ Multiple release assets matched os=$XRAY_OS_PATTERN arch=$XRAY_ARCH_TOKEN; using the first:" >&2
+        printf '%s\n' "$matches" >&2
+    fi
+
+    head -n1 <<< "$matches"
 }
 
 vless_install() {
@@ -410,6 +477,35 @@ vless_status() {
     fi
 }
 
+vless_check() {
+    echo "▶ vlessproxy update check"
+
+    local url latest_tag installed
+    url="$(vless_latest_release_url)" || true
+    if [[ -z "$url" ]]; then
+        echo "  Could not fetch latest release (network issue or GitHub API rate limit?)"
+        return
+    fi
+    latest_tag="$(echo "$url" | sed -E 's#.*/download/([^/]+)/.*#\1#')"
+
+    if [[ -x "$VLESS_BIN" ]]; then
+        installed="$("$VLESS_BIN" version 2>/dev/null | head -n1 || true)"
+    else
+        installed=""
+    fi
+
+    echo "  Installed : ${installed:-not installed}"
+    echo "  Latest    : $latest_tag"
+
+    if [[ -z "$installed" ]]; then
+        echo "  Status    : not installed -> run: $0 install vless"
+    elif [[ "$installed" == *"${latest_tag#v}"* ]]; then
+        echo "  Status    : up to date"
+    else
+        echo "  Status    : update available -> run: $0 upgrade vless"
+    fi
+}
+
 vless_uninstall() {
     info "Uninstalling vlessproxy…"
     launchctl unload "$VLESS_PLIST" >/dev/null 2>&1 || true
@@ -482,13 +578,17 @@ case "$cmd" in
         naive_status
         vless_status
         ;;
+    check)
+        naive_check
+        vless_check
+        ;;
     uninstall)
         naive_uninstall
         vless_uninstall
         ;;
     *)
         cat <<EOF
-Usage: $0 {install|upgrade|start|stop|restart|status|uninstall} [naive|vless]
+Usage: $0 {install|upgrade|start|stop|restart|status|check|uninstall} [naive|vless]
 
 Commands:
   install | upgrade   Download latest release and start (target only)
@@ -496,6 +596,7 @@ Commands:
   stop                Stop both LaunchAgents
   restart             Restart (target only)
   status              Show running status and version for both
+  check               Compare installed vs latest release for both (no download)
   uninstall           Stop and remove all files for both
 
 Target (default: \$ACTIVE_PROXY, currently "$ACTIVE_PROXY"):
